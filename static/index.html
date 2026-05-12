@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Outlook CSV Email Assistant</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <h1>Outlook CSV Email Assistant</h1>
+        <p id="csvMeta">Loading contacts...</p>
+      </div>
+      <button id="loginBtn">Connect Outlook</button>
+    </header>
+
+    <section class="panel composer">
+      <div class="field">
+        <label for="subject">Subject</label>
+        <input id="subject" placeholder="Hello {{first_name}}">
+      </div>
+      <div class="field">
+        <label for="body">Body</label>
+        <textarea id="body" rows="8" placeholder="Hi {{first_name}},&#10;&#10;Writing to you in {{city}}..."></textarea>
+      </div>
+      <div class="settings-grid">
+        <label>Content
+          <select id="contentType">
+            <option>Text</option>
+            <option>HTML</option>
+          </select>
+        </label>
+        <label>Interval minutes
+          <input id="interval" type="number" min="1" value="10">
+        </label>
+        <label>Start
+          <input id="businessStart" type="time" value="09:00">
+        </label>
+        <label>End
+          <input id="businessEnd" type="time" value="17:00">
+        </label>
+        <label>Timezone
+          <input id="timezone" value="America/Chicago">
+        </label>
+        <label class="check">
+          <input id="overrideContacted" type="checkbox">
+          Include already contacted
+        </label>
+      </div>
+      <div class="actions">
+        <button id="previewBtn">Preview</button>
+        <button id="queueBtn" disabled>Create Queue</button>
+      </div>
+    </section>
+
+    <section class="summary" id="summary"></section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Preview</h2>
+        <span id="previewStatus"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Row</th>
+              <th>Recipient</th>
+              <th>Status</th>
+              <th>Subject</th>
+              <th>Body</th>
+            </tr>
+          </thead>
+          <tbody id="previewRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Jobs</h2>
+        <button id="refreshJobsBtn">Refresh</button>
+      </div>
+      <div id="jobs"></div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

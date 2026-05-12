@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.log
+.gitrepo/
+.vscode/
+.pytest_cache/
+.venv/
+venv/
+.env
+email_assistant.sqlite3
+msal_token_cache.bin
