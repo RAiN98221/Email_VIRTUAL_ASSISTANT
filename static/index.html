@@ -3,20 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Outlook CSV Email Assistant</title>
+  <title>CSV Email Assistant</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
   <main class="shell">
     <header class="topbar">
       <div>
-        <h1>Outlook CSV Email Assistant</h1>
+        <h1>CSV Email Assistant</h1>
         <p id="csvMeta">Loading contacts...</p>
       </div>
-      <button id="loginBtn">Connect Outlook</button>
+      <button id="loginBtn">Gmail not configured</button>
     </header>
 
     <section class="panel composer">
+      <div class="field">
+        <label for="csvFile">Contact file</label>
+        <select id="csvFile"></select>
+      </div>
       <div class="field">
         <label for="subject">Subject</label>
         <input id="subject" placeholder="Hello {{first_name}}">
@@ -34,6 +38,9 @@
         </label>
         <label>Interval minutes
           <input id="interval" type="number" min="1" value="10">
+        </label>
+        <label>Queue limit
+          <input id="sendLimit" type="number" min="1" placeholder="All">
         </label>
         <label>Start
           <input id="businessStart" type="time" value="09:00">
@@ -62,10 +69,18 @@
         <h2>Preview</h2>
         <span id="previewStatus"></span>
       </div>
+      <div class="selection-bar">
+        <label class="check select-check">
+          <input id="selectAllRows" type="checkbox">
+          Select all sendable
+        </label>
+        <span id="selectionStatus"></span>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
+              <th>Select</th>
               <th>Row</th>
               <th>Recipient</th>
               <th>Status</th>

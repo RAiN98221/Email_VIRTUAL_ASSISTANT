@@ -1,112 +1,102 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
+import smtplib
+import socket
+import ssl
+from email.message import EmailMessage
 from typing import Any
 
-import msal
-import requests
-
+from .logging_config import get_logger
 from .settings import settings
 
 
-SCOPES = ["Mail.Send", "User.Read"]
-GRAPH_SENDMAIL_URL = "https://graph.microsoft.com/v1.0/me/sendMail"
-PLACEHOLDER_CLIENT_IDS = {"", "your-azure-app-client-id"}
+PLACEHOLDER_SMTP_VALUES = {"", "your-gmail-address@gmail.com", "your-google-app-password"}
+logger = get_logger(__name__)
 
 
-class AuthNotConfigured(RuntimeError):
+class MailNotConfigured(RuntimeError):
     pass
 
 
-class AuthRequired(RuntimeError):
+class SmtpConnectMixin:
+    def _get_socket(self, host: str, port: int, timeout: float):
+        connect_host = settings.smtp_connect_host.strip() or host
+        return socket.create_connection((connect_host, port), timeout)
+
+
+class GmailSmtp(SmtpConnectMixin, smtplib.SMTP):
     pass
 
 
-class GraphClient:
-    def __init__(self, cache_path: Path | None = None) -> None:
-        self.cache_path = cache_path or settings.token_cache_path
-        self.cache = msal.SerializableTokenCache()
-        if self.cache_path.exists():
-            self.cache.deserialize(self.cache_path.read_text(encoding="utf-8"))
-        if not self.is_configured():
-            self.app = None
-        else:
-            self.app = msal.PublicClientApplication(
-                settings.microsoft_client_id,
-                authority=settings.authority,
-                token_cache=self.cache,
-            )
+class GmailSmtpSsl(SmtpConnectMixin, smtplib.SMTP_SSL):
+    def _get_socket(self, host: str, port: int, timeout: float):
+        raw_socket = SmtpConnectMixin._get_socket(self, host, port, timeout)
+        context = self.context or ssl.create_default_context()
+        return context.wrap_socket(raw_socket, server_hostname=host)
 
-    def _save_cache(self) -> None:
-        if self.cache.has_state_changed:
-            self.cache_path.write_text(self.cache.serialize(), encoding="utf-8")
 
+class GmailSmtpClient:
     def is_configured(self) -> bool:
-        return settings.microsoft_client_id.strip() not in PLACEHOLDER_CLIENT_IDS
-
-    def auth_url(self) -> str:
-        if not self.app:
-            raise AuthNotConfigured("Set MICROSOFT_CLIENT_ID in .env first.")
-        return self.app.get_authorization_request_url(
-            scopes=SCOPES,
-            redirect_uri=settings.microsoft_redirect_uri,
-            prompt="select_account",
+        return (
+            settings.smtp_host.strip() not in PLACEHOLDER_SMTP_VALUES
+            and settings.smtp_username.strip() not in PLACEHOLDER_SMTP_VALUES
+            and settings.smtp_password.strip() not in PLACEHOLDER_SMTP_VALUES
+            and settings.from_email.strip() not in PLACEHOLDER_SMTP_VALUES
         )
-
-    def acquire_token_by_code(self, code: str) -> dict[str, Any]:
-        if not self.app:
-            raise AuthNotConfigured("Set MICROSOFT_CLIENT_ID in .env first.")
-        result = self.app.acquire_token_by_authorization_code(
-            code,
-            scopes=SCOPES,
-            redirect_uri=settings.microsoft_redirect_uri,
-        )
-        self._save_cache()
-        if "access_token" not in result:
-            raise AuthRequired(json.dumps(result))
-        return result
-
-    def access_token(self) -> str:
-        if not self.app:
-            raise AuthNotConfigured("Set MICROSOFT_CLIENT_ID in .env first.")
-        accounts = self.app.get_accounts()
-        if accounts:
-            result = self.app.acquire_token_silent(SCOPES, account=accounts[0])
-            self._save_cache()
-            if result and "access_token" in result:
-                return result["access_token"]
-        raise AuthRequired("Login with Microsoft before sending.")
 
     def auth_status(self) -> dict[str, Any]:
-        if not self.is_configured():
-            return {"configured": False, "authenticated": False, "account": None}
-        accounts = self.app.get_accounts() if self.app else []
         return {
-            "configured": True,
-            "authenticated": bool(accounts),
-            "account": accounts[0].get("username") if accounts else None,
+            "provider": "gmail",
+            "configured": self.is_configured(),
+            "authenticated": self.is_configured(),
+            "account": settings.from_email or settings.smtp_username or None,
+            "connect_host": settings.smtp_connect_host or settings.smtp_host,
         }
 
     def send_mail(self, to_email: str, subject: str, body: str, content_type: str = "Text") -> str | None:
-        token = self.access_token()
-        payload = {
-            "message": {
-                "subject": subject,
-                "body": {
-                    "contentType": "HTML" if content_type.lower() == "html" else "Text",
-                    "content": body,
-                },
-                "toRecipients": [{"emailAddress": {"address": to_email}}],
-            },
-            "saveToSentItems": True,
-        }
-        response = requests.post(
-            GRAPH_SENDMAIL_URL,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            json=payload,
-            timeout=30,
+        if not self.is_configured():
+            raise MailNotConfigured("Set SMTP_USERNAME, SMTP_PASSWORD, and FROM_EMAIL in .env first.")
+
+        message = EmailMessage()
+        message["From"] = settings.from_email
+        message["To"] = to_email
+        message["Subject"] = subject
+        if content_type.lower() == "html":
+            message.set_content("This message contains HTML content.")
+            message.add_alternative(body, subtype="html")
+        else:
+            message.set_content(body)
+
+        logger.info(
+            "smtp_send_start host=%s connect_host=%s port=%s from=%s to=%s content_type=%s",
+            settings.smtp_host,
+            settings.smtp_connect_host or settings.smtp_host,
+            settings.smtp_port,
+            settings.from_email,
+            to_email,
+            content_type,
         )
-        if response.status_code not in (202, 200):
-            raise RuntimeError(f"Graph sendMail failed {response.status_code}: {response.text}")
-        return response.headers.get("request-id")
+        try:
+            if settings.smtp_port == 465:
+                smtp_context = GmailSmtpSsl(settings.smtp_host, settings.smtp_port, timeout=60)
+            else:
+                smtp_context = GmailSmtp(settings.smtp_host, settings.smtp_port, timeout=60)
+            with smtp_context as smtp:
+                logger.info("smtp_connected host=%s port=%s to=%s", settings.smtp_host, settings.smtp_port, to_email)
+                smtp.ehlo()
+                if settings.smtp_port != 465:
+                    smtp.starttls()
+                    smtp.ehlo()
+                    logger.info("smtp_tls_ready to=%s", to_email)
+                smtp.login(settings.smtp_username, settings.smtp_password)
+                logger.info("smtp_login_ok username=%s to=%s", settings.smtp_username, to_email)
+                smtp.send_message(message)
+            logger.info("smtp_send_ok to=%s subject=%r", to_email, subject)
+        except Exception:
+            logger.exception("smtp_send_failed host=%s port=%s to=%s", settings.smtp_host, settings.smtp_port, to_email)
+            raise
+        return None
+
+
+def mail_client() -> GmailSmtpClient:
+    return GmailSmtpClient()

@@ -1,0 +1,9 @@
+first_name,last_name,email,phone,city,state,birth_date,age,gender
+Spencer,Walsh,spencerwalsh98221@gmail.com,555-0101,Austin,TX,1996-03-14,30,M
+Jamie,Chen,jamie.chen@example.com,555-0102,Seattle,WA,1998-11-02,27,F
+Taylor,Morgan,taylor.morgan@example.com,555-0103,Denver,CO,1994-07-22,31,Nonbinary
+Casey,Patel,casey.patel@example.com,555-0104,Chicago,IL,2000-01-08,26,F
+Jordan,Kim,jordan.kim@example.com,555-0105,Boston,MA,1997-05-30,28,M
+Riley,Brooks,jordan.kim@example.com,555-0106,Portland,OR,1999-09-16,26,F
+Sam,Nguyen,not-an-email,555-0107,Atlanta,GA,1995-12-11,30,M
+Chris,Diaz,chris.diaz@example.com,555-0108,Phoenix,AZ,2010-04-19,16,M

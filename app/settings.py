@@ -24,20 +24,16 @@ _load_dotenv(ROOT_DIR / ".env")
 
 @dataclass(frozen=True)
 class Settings:
-    microsoft_client_id: str = os.getenv("MICROSOFT_CLIENT_ID", "")
-    microsoft_tenant: str = os.getenv("MICROSOFT_TENANT", "common")
-    microsoft_redirect_uri: str = os.getenv(
-        "MICROSOFT_REDIRECT_URI", "http://localhost:8000/auth/callback"
-    )
+    smtp_host: str = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    smtp_connect_host: str = os.getenv("SMTP_CONNECT_HOST", "")
+    smtp_port: int = int(os.getenv("SMTP_PORT", "587"))
+    smtp_username: str = os.getenv("SMTP_USERNAME", "")
+    smtp_password: str = os.getenv("SMTP_PASSWORD", "")
+    from_email: str = os.getenv("FROM_EMAIL", os.getenv("SMTP_USERNAME", ""))
     database_path: Path = ROOT_DIR / os.getenv("APP_DATABASE_PATH", "email_assistant.sqlite3")
     default_csv_path: Path = ROOT_DIR / os.getenv(
         "DEFAULT_CSV_PATH", "filtered_contacts_under35_male_FIXED.csv"
     )
-    token_cache_path: Path = ROOT_DIR / "msal_token_cache.bin"
-
-    @property
-    def authority(self) -> str:
-        return f"https://login.microsoftonline.com/{self.microsoft_tenant}"
 
 
 settings = Settings()

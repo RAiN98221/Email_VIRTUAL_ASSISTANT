@@ -1,1 +1,1 @@
-"""Local Outlook CSV email assistant."""
+"""Local Gmail CSV email assistant."""

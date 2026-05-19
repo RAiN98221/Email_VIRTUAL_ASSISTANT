@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import re
 from dataclasses import dataclass
-from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -110,10 +109,6 @@ def validate_contact(contact: Contact) -> list[str]:
     return errors
 
 
-def find_placeholders(template: str) -> set[str]:
-    return set(PLACEHOLDER_RE.findall(template or ""))
-
-
 def render_template(template: str, values: dict[str, Any]) -> tuple[str, list[str]]:
     missing: set[str] = set()
 
@@ -126,7 +121,3 @@ def render_template(template: str, values: dict[str, Any]) -> tuple[str, list[st
         return str(value)
 
     return PLACEHOLDER_RE.sub(replace, template or ""), sorted(missing)
-
-
-def text_to_html(text: str) -> str:
-    return "<br>".join(escape(line) for line in (text or "").splitlines())

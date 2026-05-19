@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -16,7 +15,7 @@ from .contacts import (
     render_template,
     validate_contact,
 )
-from .graph import AuthRequired, GraphClient
+from .graph import mail_client
 from .scheduler import run_scheduler
 from .settings import ROOT_DIR, settings
 
@@ -24,18 +23,21 @@ from .settings import ROOT_DIR, settings
 class PreviewRequest(BaseModel):
     subject: str = Field(min_length=1)
     body: str = Field(min_length=1)
+    csv_file: str | None = None
     content_type: Literal["Text", "HTML"] = "Text"
     override_contacted: bool = False
 
 
 class QueueRequest(PreviewRequest):
+    selected_row_indexes: list[int] | None = None
+    send_limit: int | None = Field(default=None, ge=1, le=10000)
     interval_minutes: int = Field(default=10, ge=1, le=1440)
     business_start: str = Field(default="09:00", pattern=r"^\d{2}:\d{2}$")
     business_end: str = Field(default="17:00", pattern=r"^\d{2}:\d{2}$")
     timezone: str = "America/Chicago"
 
 
-app = FastAPI(title="Outlook CSV Email Assistant")
+app = FastAPI(title="CSV Email Assistant")
 app.mount("/static", StaticFiles(directory=ROOT_DIR / "static"), name="static")
 _stop_event: asyncio.Event | None = None
 _scheduler_task: asyncio.Task | None = None
@@ -64,31 +66,42 @@ def index() -> FileResponse:
 
 @app.get("/api/auth/status")
 def auth_status() -> dict:
-    return GraphClient().auth_status()
+    return mail_client().auth_status()
 
 
-@app.get("/auth/login")
-def login() -> RedirectResponse:
-    return RedirectResponse(GraphClient().auth_url())
+def available_csv_files() -> list[dict[str, str | bool]]:
+    default_name = settings.default_csv_path.name
+    return [
+        {
+            "name": path.name,
+            "path": str(path),
+            "default": path.name == default_name,
+        }
+        for path in sorted(ROOT_DIR.glob("*.csv"))
+    ]
 
 
-@app.get("/auth/callback")
-def auth_callback(code: str | None = Query(default=None), error: str | None = Query(default=None)) -> HTMLResponse:
-    if error:
-        raise HTTPException(status_code=400, detail=error)
-    if not code:
-        raise HTTPException(status_code=400, detail="Missing authorization code.")
-    GraphClient().acquire_token_by_code(code)
-    return HTMLResponse(
-        "<h1>Microsoft login complete</h1><p>You can close this tab and return to the assistant.</p>"
-    )
+def selected_csv_path(csv_file: str | None = None):
+    csv_files = {item["name"]: item["path"] for item in available_csv_files()}
+    if not csv_file:
+        return settings.default_csv_path
+    if csv_file not in csv_files:
+        raise HTTPException(status_code=400, detail="Unknown CSV file.")
+    return ROOT_DIR / csv_file
+
+
+@app.get("/api/csv-files")
+def csv_files() -> dict:
+    return {"files": available_csv_files()}
 
 
 @app.get("/api/contacts")
-def contacts() -> dict:
-    loaded = load_contacts(settings.default_csv_path)
+def contacts(csv_file: str | None = None) -> dict:
+    csv_path = selected_csv_path(csv_file)
+    loaded = load_contacts(csv_path)
     return {
-        "csv_path": str(settings.default_csv_path),
+        "csv_file": csv_path.name,
+        "csv_path": str(csv_path),
         "count": len(loaded),
         "columns": [
             "first_name",
@@ -105,7 +118,7 @@ def contacts() -> dict:
 
 
 def build_preview(payload: PreviewRequest) -> dict:
-    contacts = load_contacts(settings.default_csv_path)
+    contacts = load_contacts(selected_csv_path(payload.csv_file))
     contacted = db.contacted_emails()
     seen: set[str] = set()
     rows = []
@@ -165,6 +178,11 @@ def preview(payload: PreviewRequest) -> dict:
 def create_job(payload: QueueRequest) -> dict:
     preview_data = build_preview(payload)
     items = [row for row in preview_data["rows"] if row["sendable"]]
+    if payload.selected_row_indexes is not None:
+        selected = set(payload.selected_row_indexes)
+        items = [row for row in items if row["row_index"] in selected]
+    if payload.send_limit is not None:
+        items = items[: payload.send_limit]
     if not items:
         raise HTTPException(status_code=400, detail="No sendable contacts after validation.")
     job_id = db.create_job(

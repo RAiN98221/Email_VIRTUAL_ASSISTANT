@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, time, timedelta, timezone
-from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from . import db
+from .logging_config import get_logger
 
-if TYPE_CHECKING:
-    from .graph import GraphClient
+
+logger = get_logger(__name__)
 
 
 def parse_hhmm(value: str) -> time:
@@ -30,22 +30,21 @@ def next_scheduled_at(after_utc: datetime, interval_minutes: int) -> str:
 
 
 async def run_scheduler(stop_event: asyncio.Event, poll_seconds: int = 10) -> None:
-    from .graph import GraphClient
+    from .graph import mail_client
 
-    graph = GraphClient()
+    graph = mail_client()
     while not stop_event.is_set():
         try:
             process_due_items(graph)
         except Exception:
-            # Keep the background loop alive; individual item errors are persisted.
-            pass
+            logger.exception("scheduler_loop_error")
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=poll_seconds)
         except asyncio.TimeoutError:
             continue
 
 
-def process_due_items(graph: "GraphClient") -> None:
+def process_due_items(graph) -> None:
     now = datetime.now(timezone.utc)
     with db.connect() as conn:
         job = conn.execute(
@@ -87,6 +86,7 @@ def process_due_items(graph: "GraphClient") -> None:
         )
 
     try:
+        logger.info("queue_send_start job_id=%s item_id=%s to=%s", job["id"], item["id"], item["email"])
         message_id = graph.send_mail(
             to_email=item["email"],
             subject=item["subject"],
@@ -94,8 +94,10 @@ def process_due_items(graph: "GraphClient") -> None:
             content_type=job["content_type"],
         )
         db.mark_sent(item["id"], message_id)
+        logger.info("queue_send_ok job_id=%s item_id=%s to=%s", job["id"], item["id"], item["email"])
     except Exception as exc:
         db.mark_failed(item["id"], str(exc))
+        logger.exception("queue_send_failed job_id=%s item_id=%s to=%s", job["id"], item["id"], item["email"])
 
     scheduled_at = next_scheduled_at(datetime.now(timezone.utc), int(job["interval_minutes"]))
     with db.connect() as conn:

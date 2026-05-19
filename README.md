@@ -1,14 +1,12 @@
-# Outlook CSV Email Assistant
+# CSV Email Assistant
 
-A local FastAPI web app that previews and sends personalized Outlook emails from `filtered_contacts_under35_male_FIXED.csv` through Microsoft Graph. It validates contacts, skips already-contacted email addresses by default, and sends through a persistent SQLite queue at a configurable interval during business hours.
+A local FastAPI web app that previews and sends personalized emails from `filtered_contacts_under35_male_FIXED.csv` through Gmail SMTP. It validates contacts, skips already-contacted email addresses by default, and sends through a persistent SQLite queue at a configurable interval during business hours.
 
 ## Setup
 
-1. Create a Microsoft Entra app registration for a public client/native app.
-2. Add redirect URI: `http://localhost:8000/auth/callback`.
-3. Grant delegated Microsoft Graph permissions: `Mail.Send` and `User.Read`.
-4. Copy `.env.example` to `.env` and set `MICROSOFT_CLIENT_ID`.
-5. Install and run:
+1. Copy `.env.example` to `.env`.
+2. Set `SMTP_USERNAME`, `SMTP_PASSWORD`, and `FROM_EMAIL`.
+3. Install and run:
 
 ```powershell
 python -m venv .venv
@@ -17,7 +15,10 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-Open `http://localhost:8000`, connect Outlook, paste your subject/body template, preview, and create the queue.
+Open `http://localhost:8000`, paste your subject/body template, preview, and create the queue.
+
+`SMTP_PASSWORD` must be a Google app password, not your regular Google password.
+Put additional contact CSV files in the project root and they will appear in the contact file dropdown.
 
 ## Notes
 
