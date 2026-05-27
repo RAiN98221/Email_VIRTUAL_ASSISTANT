@@ -12,6 +12,7 @@
       <div>
         <h1>CSV Email Assistant</h1>
         <p id="csvMeta">Loading contacts...</p>
+        <p class="server-warning">Open this app from the FastAPI server at http://127.0.0.1:8000 so styles, scripts, and API calls load correctly.</p>
       </div>
       <button id="loginBtn">Gmail not configured</button>
     </header>
@@ -20,6 +21,11 @@
       <div class="field">
         <label for="csvFile">Contact file</label>
         <select id="csvFile"></select>
+      </div>
+      <div class="file-import">
+        <input id="csvUpload" type="file" accept=".csv,text/csv">
+        <button id="uploadCsvBtn" type="button">Import CSV</button>
+        <span id="uploadStatus"></span>
       </div>
       <div class="field">
         <label for="subject">Subject</label>
@@ -38,6 +44,12 @@
         </label>
         <label>Interval minutes
           <input id="interval" type="number" min="1" value="10">
+        </label>
+        <label>Jitter minutes
+          <input id="intervalJitter" type="number" min="0" value="2">
+        </label>
+        <label>Daily cap
+          <input id="dailySendLimit" type="number" min="1" value="25">
         </label>
         <label>Queue limit
           <input id="sendLimit" type="number" min="1" placeholder="All">

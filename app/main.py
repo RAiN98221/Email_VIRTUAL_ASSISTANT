@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import re
+from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -13,6 +15,7 @@ from .contacts import (
     load_contacts,
     normalize_email,
     render_template,
+    is_valid_email,
     validate_contact,
 )
 from .graph import mail_client
@@ -32,15 +35,26 @@ class QueueRequest(PreviewRequest):
     selected_row_indexes: list[int] | None = None
     send_limit: int | None = Field(default=None, ge=1, le=10000)
     interval_minutes: int = Field(default=10, ge=1, le=1440)
+    interval_jitter_minutes: int = Field(default=2, ge=0, le=1440)
+    daily_send_limit: int = Field(default=25, ge=1, le=10000)
     business_start: str = Field(default="09:00", pattern=r"^\d{2}:\d{2}$")
     business_end: str = Field(default="17:00", pattern=r"^\d{2}:\d{2}$")
     timezone: str = "America/Chicago"
+
+
+class SendTestRequest(BaseModel):
+    to_email: str = Field(min_length=3)
+    subject: str = "CSV Email Assistant live verification"
+    body: str = "This is a controlled live-send verification from the local CSV Email Assistant."
+    content_type: Literal["Text", "HTML"] = "Text"
 
 
 app = FastAPI(title="CSV Email Assistant")
 app.mount("/static", StaticFiles(directory=ROOT_DIR / "static"), name="static")
 _stop_event: asyncio.Event | None = None
 _scheduler_task: asyncio.Task | None = None
+CSV_UPLOAD_DIR = ROOT_DIR / "uploaded_csv"
+MAX_CSV_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 @app.on_event("startup")
@@ -69,15 +83,49 @@ def auth_status() -> dict:
     return mail_client().auth_status()
 
 
+@app.post("/api/send-test")
+def send_test(payload: SendTestRequest) -> dict:
+    if not is_valid_email(payload.to_email):
+        raise HTTPException(status_code=400, detail="Enter a valid test recipient email address.")
+    try:
+        result = mail_client().send_mail(
+            to_email=payload.to_email,
+            subject=payload.subject,
+            body=payload.body,
+            content_type=payload.content_type,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Live send failed: {exc}") from exc
+    return {
+        "ok": True,
+        "recipient": payload.to_email,
+        "result": result.as_dict(),
+        "delivery_confirmed": False,
+        "delivery_note": (
+            "This verifies SMTP acceptance and, when enabled, Gmail Sent Mail visibility. "
+            "It does not prove the recipient inbox accepted or displayed the email."
+        ),
+    }
+
+
+def csv_file_id(path: Path) -> str:
+    return path.relative_to(ROOT_DIR).as_posix()
+
+
 def available_csv_files() -> list[dict[str, str | bool]]:
     default_name = settings.default_csv_path.name
+    paths = [*sorted(ROOT_DIR.glob("*.csv"))]
+    if CSV_UPLOAD_DIR.exists():
+        paths.extend(sorted(CSV_UPLOAD_DIR.glob("*.csv")))
     return [
         {
-            "name": path.name,
+            "name": csv_file_id(path),
+            "display_name": path.name,
             "path": str(path),
-            "default": path.name == default_name,
+            "default": path.name == default_name and path.parent == ROOT_DIR,
+            "uploaded": path.parent == CSV_UPLOAD_DIR,
         }
-        for path in sorted(ROOT_DIR.glob("*.csv"))
+        for path in paths
     ]
 
 
@@ -93,6 +141,54 @@ def selected_csv_path(csv_file: str | None = None):
 @app.get("/api/csv-files")
 def csv_files() -> dict:
     return {"files": available_csv_files()}
+
+
+def safe_upload_name(filename: str) -> str:
+    base = Path(filename or "contacts.csv").name
+    stem = Path(base).stem or "contacts"
+    suffix = Path(base).suffix.lower()
+    if suffix != ".csv":
+        raise HTTPException(status_code=400, detail="Choose a .csv contact file.")
+    safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._-") or "contacts"
+    return f"{safe_stem}.csv"
+
+
+def unique_upload_path(filename: str) -> Path:
+    CSV_UPLOAD_DIR.mkdir(exist_ok=True)
+    safe_name = safe_upload_name(filename)
+    path = CSV_UPLOAD_DIR / safe_name
+    if not path.exists():
+        return path
+    stem = path.stem
+    for index in range(2, 1000):
+        candidate = CSV_UPLOAD_DIR / f"{stem}_{index}.csv"
+        if not candidate.exists():
+            return candidate
+    raise HTTPException(status_code=409, detail="Too many files with the same name.")
+
+
+@app.post("/api/csv-files")
+async def upload_csv_file(file: UploadFile = File(...)) -> dict:
+    path = unique_upload_path(file.filename or "contacts.csv")
+    content = await file.read(MAX_CSV_UPLOAD_BYTES + 1)
+    if len(content) > MAX_CSV_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="CSV file is larger than 10 MB.")
+    path.write_bytes(content)
+    try:
+        contacts = load_contacts(path)
+    except Exception as exc:
+        path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"CSV could not be loaded: {exc}") from exc
+    return {
+        "file": {
+            "name": csv_file_id(path),
+            "display_name": path.name,
+            "path": str(path),
+            "default": False,
+            "uploaded": True,
+        },
+        "count": len(contacts),
+    }
 
 
 @app.get("/api/contacts")
@@ -188,6 +284,8 @@ def create_job(payload: QueueRequest) -> dict:
     job_id = db.create_job(
         items=items,
         interval_minutes=payload.interval_minutes,
+        interval_jitter_minutes=payload.interval_jitter_minutes,
+        daily_send_limit=payload.daily_send_limit,
         business_start=payload.business_start,
         business_end=payload.business_end,
         timezone_name=payload.timezone,

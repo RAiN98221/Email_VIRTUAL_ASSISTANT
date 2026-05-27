@@ -1,4 +1,4 @@
-const state = { preview: null, selectedRows: new Set() };
+const state = { preview: null, selectedRows: new Set(), selectedCsv: "" };
 
 const $ = (id) => document.getElementById(id);
 
@@ -25,6 +25,8 @@ function payload() {
     selected_row_indexes: Array.from(state.selectedRows),
     send_limit: sendLimit,
     interval_minutes: Number($("interval").value || 10),
+    interval_jitter_minutes: Number($("intervalJitter").value || 0),
+    daily_send_limit: Number($("dailySendLimit").value || 25),
     business_start: $("businessStart").value,
     business_end: $("businessEnd").value,
     timezone: $("timezone").value,
@@ -66,6 +68,18 @@ function renderPreview(data) {
     .join("");
 }
 
+function resetPreview() {
+  state.preview = null;
+  state.selectedRows = new Set();
+  $("queueBtn").disabled = true;
+  $("previewRows").innerHTML = "";
+  $("summary").innerHTML = "";
+  $("previewStatus").textContent = "";
+  $("selectionStatus").textContent = "";
+  $("selectAllRows").checked = false;
+  $("selectAllRows").indeterminate = false;
+}
+
 function updateSelectionStatus() {
   const sendableRows = state.preview ? state.preview.rows.filter((row) => row.sendable) : [];
   $("queueBtn").disabled = state.selectedRows.size === 0;
@@ -102,9 +116,12 @@ async function loadCsvFiles() {
   $("csvFile").innerHTML = files
     .map(
       (file) =>
-        `<option value="${escapeHtml(file.name)}" ${file.default ? "selected" : ""}>${escapeHtml(file.name)}</option>`
+        `<option value="${escapeHtml(file.name)}" ${file.default ? "selected" : ""}>${escapeHtml(file.display_name || file.name)}${file.uploaded ? " (imported)" : ""}</option>`
     )
     .join("");
+  if (state.selectedCsv && files.some((file) => file.name === state.selectedCsv)) {
+    $("csvFile").value = state.selectedCsv;
+  }
   $("previewBtn").disabled = files.length === 0;
   $("queueBtn").disabled = true;
   if (files.length === 0) {
@@ -121,7 +138,8 @@ async function loadJobs() {
         .map(
           (job) => `<article class="job">
             <div><strong>${job.status}</strong> job ${job.id}</div>
-            <div>${job.interval_minutes} min interval, ${job.business_start}-${job.business_end} ${job.timezone}</div>
+            <div>${job.interval_minutes} min interval, +/- ${job.interval_jitter_minutes} min jitter, ${job.daily_send_limit}/day cap</div>
+            <div>${job.business_start}-${job.business_end} ${job.timezone}</div>
             <div>${Object.entries(job.counts).map(([k, v]) => `<span class="badge">${k}: ${v}</span>`).join("")}</div>
             <div class="queue-details" id="queue-${job.id}"></div>
             <div class="job-actions">
@@ -152,16 +170,38 @@ $("previewBtn").addEventListener("click", async () => {
 });
 
 $("csvFile").addEventListener("change", async () => {
-  state.preview = null;
-  state.selectedRows = new Set();
-  $("queueBtn").disabled = true;
-  $("previewRows").innerHTML = "";
-  $("summary").innerHTML = "";
-  $("previewStatus").textContent = "";
-  $("selectionStatus").textContent = "";
-  $("selectAllRows").checked = false;
-  $("selectAllRows").indeterminate = false;
+  state.selectedCsv = $("csvFile").value;
+  resetPreview();
   await loadContacts();
+});
+
+$("uploadCsvBtn").addEventListener("click", async () => {
+  const file = $("csvUpload").files[0];
+  if (!file) {
+    alert("Choose a CSV file first.");
+    return;
+  }
+  const formData = new FormData();
+  formData.append("file", file);
+  $("uploadCsvBtn").disabled = true;
+  $("uploadStatus").textContent = "Importing...";
+  try {
+    const response = await fetch("/api/csv-files", { method: "POST", body: formData });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    const result = await response.json();
+    state.selectedCsv = result.file.name;
+    resetPreview();
+    await loadCsvFiles();
+    $("uploadStatus").textContent = `${result.count} contacts imported`;
+  } catch (error) {
+    $("uploadStatus").textContent = "";
+    alert(error.message);
+  } finally {
+    $("uploadCsvBtn").disabled = false;
+    $("csvUpload").value = "";
+  }
 });
 
 $("selectAllRows").addEventListener("change", () => {
@@ -221,14 +261,15 @@ async function loadQueueDetails(jobId) {
   const target = $(`queue-${jobId}`);
   target.innerHTML = items.length
     ? `<table class="queue-table">
-        <thead><tr><th>Row</th><th>Email</th><th>Status</th><th>Error</th></tr></thead>
+        <thead><tr><th>Row</th><th>Email</th><th>Status</th><th>Verification</th><th>Detail</th></tr></thead>
         <tbody>${items
           .map(
             (item) => `<tr>
               <td>${item.row_index}</td>
               <td>${escapeHtml(item.email)}</td>
               <td>${escapeHtml(item.status)}</td>
-              <td>${escapeHtml(item.error || "")}</td>
+              <td>${escapeHtml(item.verification_status || "")}</td>
+              <td>${escapeHtml(item.verification_detail || item.error || "")}</td>
             </tr>`
           )
           .join("")}</tbody>

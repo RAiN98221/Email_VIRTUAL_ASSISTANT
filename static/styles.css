@@ -54,6 +54,10 @@ p,
   color: var(--muted);
 }
 
+.server-warning {
+  display: none;
+}
+
 .panel {
   margin-top: 18px;
   padding: 18px;
@@ -72,6 +76,17 @@ p,
   display: grid;
   gap: 6px;
   font-weight: 650;
+}
+
+.file-import {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto minmax(140px, auto);
+  gap: 10px;
+  align-items: center;
+}
+
+#uploadStatus {
+  color: var(--muted);
 }
 
 input,

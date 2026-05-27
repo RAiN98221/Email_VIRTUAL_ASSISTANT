@@ -54,6 +54,8 @@ def init_db(path: Path | None = None) -> None:
                 id TEXT PRIMARY KEY,
                 status TEXT NOT NULL,
                 interval_minutes INTEGER NOT NULL,
+                interval_jitter_minutes INTEGER NOT NULL DEFAULT 0,
+                daily_send_limit INTEGER NOT NULL DEFAULT 25,
                 business_start TEXT NOT NULL,
                 business_end TEXT NOT NULL,
                 timezone TEXT NOT NULL,
@@ -89,6 +91,31 @@ def init_db(path: Path | None = None) -> None:
                 ON queue_items(email_norm);
             """
         )
+        existing_queue_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(queue_items)").fetchall()
+        }
+        queue_migrations = {
+            "smtp_message_id": "ALTER TABLE queue_items ADD COLUMN smtp_message_id TEXT",
+            "verification_status": "ALTER TABLE queue_items ADD COLUMN verification_status TEXT",
+            "verification_detail": "ALTER TABLE queue_items ADD COLUMN verification_detail TEXT",
+            "verified_at": "ALTER TABLE queue_items ADD COLUMN verified_at TEXT",
+        }
+        for column, statement in queue_migrations.items():
+            if column not in existing_queue_columns:
+                conn.execute(statement)
+
+        existing_job_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()
+        }
+        job_migrations = {
+            "interval_jitter_minutes": (
+                "ALTER TABLE jobs ADD COLUMN interval_jitter_minutes INTEGER NOT NULL DEFAULT 0"
+            ),
+            "daily_send_limit": "ALTER TABLE jobs ADD COLUMN daily_send_limit INTEGER NOT NULL DEFAULT 25",
+        }
+        for column, statement in job_migrations.items():
+            if column not in existing_job_columns:
+                conn.execute(statement)
 
 
 def contacted_emails() -> set[str]:
@@ -99,6 +126,8 @@ def contacted_emails() -> set[str]:
 def create_job(
     items: list[dict[str, Any]],
     interval_minutes: int,
+    interval_jitter_minutes: int,
+    daily_send_limit: int,
     business_start: str,
     business_end: str,
     timezone_name: str,
@@ -111,13 +140,16 @@ def create_job(
         conn.execute(
             """
             INSERT INTO jobs (
-                id, status, interval_minutes, business_start, business_end, timezone,
-                override_contacted, content_type, created_at, updated_at
-            ) VALUES (?, 'running', ?, ?, ?, ?, ?, ?, ?, ?)
+                id, status, interval_minutes, interval_jitter_minutes, daily_send_limit,
+                business_start, business_end, timezone, override_contacted, content_type,
+                created_at, updated_at
+            ) VALUES (?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id,
                 interval_minutes,
+                interval_jitter_minutes,
+                daily_send_limit,
                 business_start,
                 business_end,
                 timezone_name,
@@ -170,6 +202,18 @@ def list_jobs() -> list[dict[str, Any]]:
         return jobs
 
 
+def count_sent_between(job_id: str, start_utc: str, end_utc: str) -> int:
+    with connect() as conn:
+        return conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM queue_items
+            WHERE job_id = ? AND status = 'sent' AND sent_at >= ? AND sent_at < ?
+            """,
+            (job_id, start_utc, end_utc),
+        ).fetchone()["count"]
+
+
 def list_queue(job_id: str | None = None) -> list[dict[str, Any]]:
     query = "SELECT * FROM queue_items"
     params: tuple[Any, ...] = ()
@@ -198,7 +242,12 @@ def set_job_status(job_id: str, status: str) -> None:
             )
 
 
-def mark_sent(item_id: int, graph_message_id: str | None = None) -> None:
+def mark_sent(
+    item_id: int,
+    smtp_message_id: str | None = None,
+    verification_status: str | None = None,
+    verification_detail: str | None = None,
+) -> None:
     now = utc_now()
     with connect() as conn:
         item = conn.execute("SELECT * FROM queue_items WHERE id = ?", (item_id,)).fetchone()
@@ -207,11 +256,20 @@ def mark_sent(item_id: int, graph_message_id: str | None = None) -> None:
         conn.execute(
             """
             UPDATE queue_items
-            SET status = 'sent', sent_at = ?, error = ?, attempt_count = attempt_count + 1,
-                updated_at = ?
+            SET status = 'sent', sent_at = ?, error = NULL, smtp_message_id = ?,
+                verification_status = ?, verification_detail = ?, verified_at = ?,
+                attempt_count = attempt_count + 1, updated_at = ?
             WHERE id = ?
             """,
-            (now, graph_message_id, now, item_id),
+            (
+                now,
+                smtp_message_id,
+                verification_status,
+                verification_detail,
+                now if verification_status else None,
+                now,
+                item_id,
+            ),
         )
         existing = conn.execute(
             "SELECT email_norm FROM contacted WHERE email_norm = ?", (item["email_norm"],)
