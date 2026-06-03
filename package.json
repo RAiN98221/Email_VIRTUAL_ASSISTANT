@@ -1,0 +1,21 @@
+{
+  "name": "email_virtual_assistant",
+  "version": "1.0.0",
+  "description": "A local FastAPI web app that previews and sends personalized emails from `filtered_contacts_under35_male_FIXED.csv` through Gmail SMTP. It validates contacts, skips already-contacted email addresses by default, and sends through a persistent SQLite queue at a configurable interval during business hours.",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test:ui": "playwright test",
+    "test:ui:headed": "playwright test --headed",
+    "test:ui:report": "playwright show-report",
+    "visual:walkthrough": "node scripts/visual-walkthrough.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
+  }
+}

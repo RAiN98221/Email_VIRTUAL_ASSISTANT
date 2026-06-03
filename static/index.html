@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CSV Email Assistant</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <section id="login" class="login-page page">
+    <div class="login-brand-panel">
+      <div class="brand"><div class="brand-mark" data-icon="mail"></div><h1>CSV Email Assistant</h1></div>
+      <div class="login-product">
+        <div class="login-logo" data-icon="mail"></div>
+        <h2>CSV Email Assistant</h2>
+        <p>Send smarter outreach</p>
+        <p>Personal. Automated. Effective.</p>
+      </div>
+      <div class="feature-list">
+        <div><span data-icon="upload"></span><div><strong>Upload your contacts</strong><small>Import CSV and clean your list</small></div></div>
+        <div><span data-icon="send"></span><div><strong>Create email campaigns</strong><small>Personalize and schedule your emails</small></div></div>
+        <div><span data-icon="activity"></span><div><strong>Track replies & engagement</strong><small>Manage replies and improve results</small></div></div>
+        <div><span data-icon="shield"></span><div><strong>Stay safe with smart limits</strong><small>Built-in safeguards for your account</small></div></div>
+      </div>
+      <div class="login-illustration"><div class="paper-plane" data-icon="send"></div><div class="mail-stack" data-icon="mail"></div><div class="check-dot" data-icon="check"></div></div>
+      <small>© 2025 CSV Email Assistant. All rights reserved.</small>
+    </div>
+    <form class="login-card">
+      <h2>Welcome back</h2>
+      <p>Sign in to your account</p>
+      <button type="button" class="google-button">G Sign in with Google</button>
+      <div class="divider"><span>or</span></div>
+      <label>Email address<input type="email" placeholder="you@example.com"></label>
+      <label>Password<input type="password" value="password"></label>
+      <div class="login-options"><label class="check-row"><input type="checkbox"> Remember me</label><button type="button" class="link-button">Forgot password?</button></div>
+      <button type="button" data-page-target="dashboard">Sign in</button>
+      <p>Don't have an account? <button type="button" class="link-button">Sign up</button></p>
+    </form>
+  </section>
+
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark" data-icon="mail"></div><h1>CSV Email Assistant</h1></div>
+    <nav class="side-nav" aria-label="Main">
+      <a class="active" href="#dashboard" data-page-link="dashboard"><span data-icon="home"></span>Dashboard</a>
+      <a href="#campaigns" data-page-link="campaigns"><span data-icon="send"></span>Campaigns</a>
+      <div class="nav-group template-nav-group">
+        <a href="#templates" data-page-link="templates"><span data-icon="fileText"></span>Templates <span class="submenu-caret" data-icon="chevronDown"></span></a>
+        <div class="template-submenu">
+          <div class="submenu-title">My Templates</div>
+          <input id="sideTemplateSearch" class="submenu-search" placeholder="Search templates...">
+          <div id="sideTemplateList" class="sidebar-template-list"></div>
+        </div>
+      </div>
+      <a href="#replies" data-page-link="replies"><span data-icon="inbox"></span>Replies <b id="sidebarReplyCount">0</b></a>
+      <a href="#contacts" data-page-link="contacts"><span data-icon="users"></span>Contacts</a>
+      <a href="#settings" data-page-link="settings"><span data-icon="settings"></span>Settings</a>
+    </nav>
+    <div class="sidebar-bottom">
+      <section class="account-card">
+        <h2>Gmail Connected</h2>
+        <button id="loginBtn" class="gmail-card">Gmail not configured</button>
+        <div class="daily-meter">
+          <span>Daily Limit</span>
+          <span><strong id="metricSentTodayMirror">0</strong> / <strong id="metricHealthDetail">25/day configured</strong></span>
+          <div><span id="dailyLimitBar"></span></div>
+        </div>
+        <span id="metricHealth" class="sr-only">Safe</span>
+      </section>
+    </div>
+  </aside>
+
+  <main class="app-shell">
+    <section id="dashboard" class="page active">
+      <header class="topbar">
+        <div><h2>Dashboard</h2><p>Overview of all outreach activities</p></div>
+        <div class="top-actions dashboard-actions">
+          <button id="newCampaignBtn" type="button"><span data-icon="plus"></span> New Campaign</button>
+          <div class="notification-wrap">
+            <button id="notificationBtn" type="button" class="icon-button" aria-label="Notifications" aria-expanded="false" aria-controls="notificationPanel"><span data-icon="bell"></span><b id="notificationBadge" class="notification-badge hidden">0</b></button>
+            <div id="notificationPanel" class="notification-panel" hidden>
+              <div class="notification-head"><strong>Notifications</strong><button id="notificationCloseBtn" type="button" class="icon-button" aria-label="Close notifications"><span data-icon="more"></span></button></div>
+              <div id="notificationList" class="notification-list"></div>
+            </div>
+          </div>
+          <button id="themeToggleBtn" type="button" class="icon-button" aria-label="Toggle theme" aria-pressed="false"><span id="themeToggleIcon" data-icon="sun"></span></button>
+        </div>
+      </header>
+      <nav class="card-nav" aria-label="Dashboard sections">
+        <button class="active" type="button" data-card-tab="dashboard" data-card-target="dashboard-overview">Overview</button>
+        <button type="button" data-card-tab="dashboard" data-card-target="dashboard-trend">Email Trend</button>
+        <button type="button" data-card-tab="dashboard" data-card-target="dashboard-status">Campaign Status</button>
+        <button type="button" data-card-tab="dashboard" data-card-target="dashboard-states">Top States</button>
+        <button type="button" data-card-tab="dashboard" data-card-target="dashboard-activity">Activity</button>
+        <button type="button" data-card-tab="dashboard" data-card-target="dashboard-schedule">Schedule</button>
+      </nav>
+      <section class="metric-grid dashboard-metrics card-panel active-card" data-card-panel="dashboard" data-card-id="dashboard-overview">
+        <article class="metric-card"><span class="metric-icon mint" data-icon="users"></span><div><strong id="metricTotal">0</strong><span>Contacts Loaded</span><small id="dashboardContactDelta">CSV contacts</small></div></article>
+        <article class="metric-card"><span class="metric-icon sky" data-icon="send"></span><div><strong id="metricSentToday">0</strong><span>Sent Today</span><small>Tracked sends</small></div></article>
+        <article class="metric-card"><span class="metric-icon violet" data-icon="reply"></span><div><strong id="metricReplies">0</strong><span>Replies Received</span><small>Reply tracking</small></div></article>
+        <article class="metric-card"><span class="metric-icon orange" data-icon="triangleAlert"></span><div><strong id="metricFailed">0</strong><span>Failed Today</span><small>Needs attention</small></div></article>
+        <article class="metric-card"><span class="metric-icon teal" data-icon="clock"></span><div><strong id="metricQueued">0</strong><span>Pending</span><small>In queue</small></div></article>
+      </section>
+      <div class="dashboard-grid">
+        <section class="panel chart-card card-panel" data-card-panel="dashboard" data-card-id="dashboard-trend"><div class="section-title"><h2>Emails Sent (Last 7 Days)</h2></div><div class="line-chart"><svg viewBox="0 0 520 180" preserveAspectRatio="none"><path d="M0 130 C45 145 62 82 112 92 C152 100 165 56 210 68 C258 82 270 20 322 38 C370 58 382 96 430 76 C472 58 488 96 520 72" fill="none" stroke="#10b981" stroke-width="4"/><path d="M0 130 C45 145 62 82 112 92 C152 100 165 56 210 68 C258 82 270 20 322 38 C370 58 382 96 430 76 C472 58 488 96 520 72 L520 180 L0 180 Z" fill="#10b98122"/></svg><div class="chart-days"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div></div></section>
+        <section class="panel status-card card-panel" data-card-panel="dashboard" data-card-id="dashboard-status"><div class="section-title"><h2>Campaign Status</h2></div><div class="campaign-donut-card"><div class="campaign-donut"><strong id="statusInsightTotal">0</strong><span>Total</span></div><div id="statusInsightChart" class="status-bars"></div></div></section>
+        <section class="panel insights-card card-panel" data-card-panel="dashboard" data-card-id="dashboard-states"><div class="section-title compact"><h2>Top States</h2></div><div id="topStates"></div><div class="donut-row"><div id="ageDonut" class="donut"></div><div id="ageLegend"></div></div></section>
+        <section class="panel activity-card card-panel" data-card-panel="dashboard" data-card-id="dashboard-activity"><div class="section-title"><h2>Recent Activity</h2></div><div id="recentActivity" class="activity-list"></div></section>
+        <section class="panel schedule-card card-panel" data-card-panel="dashboard" data-card-id="dashboard-schedule"><div class="section-title"><h2>Next Scheduled Emails</h2><button type="button" class="link-button" data-page-target="campaigns">Next 5 sends</button></div><div id="schedulePreview" class="schedule-times"></div><strong id="scheduleSummary">0 emails will be sent today</strong></section>
+      </div>
+    </section>
+
+    <section id="campaigns" class="page">
+      <header class="topbar"><div><h2>Campaigns</h2><p>Create, manage and track all email campaigns</p></div><button id="newCampaignBtnCampaigns" type="button"><span data-icon="plus"></span> New Campaign</button></header>
+      <nav class="card-nav" aria-label="Campaign sections">
+        <button class="active" type="button" data-card-tab="campaigns" data-card-target="campaigns-activity">Campaign Activity</button>
+        <button type="button" data-card-tab="campaigns" data-card-target="campaigns-create">Create Campaign</button>
+        <button type="button" data-card-tab="campaigns" data-card-target="campaigns-review">Review Contacts</button>
+      </nav>
+      <section class="panel card-panel active-card" data-card-panel="campaigns" data-card-id="campaigns-activity">
+        <div class="section-title"><div class="tabs"><button class="active" type="button">All</button><button type="button">Running</button><button type="button">Paused</button><button type="button">Completed</button><button type="button">Cancelled</button></div><div class="toolbar-group"><input class="search-input" placeholder="Search campaigns..."><button id="refreshJobsBtn" type="button" class="secondary">Refresh</button></div></div>
+        <div class="table-wrap"><table class="history-table"><thead><tr><th>Campaign Name</th><th>Recipients</th><th>Sent</th><th>Replies</th><th>Status</th><th>Next Send</th><th>Actions</th></tr></thead><tbody id="jobs"></tbody></table></div>
+        <div class="table-pagination">
+          <span id="jobsPageInfo">No campaigns</span>
+          <label>Show
+            <select id="jobsPageSize">
+              <option value="5" selected>5</option>
+              <option value="10">10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+            </select>
+          </label>
+          <div class="pager-buttons">
+            <button id="jobsPrevPage" type="button" class="secondary">Previous</button>
+            <span id="jobsPageLabel">1 / 1</span>
+            <button id="jobsNextPage" type="button" class="secondary">Next</button>
+          </div>
+        </div>
+        <div id="queueDetails"></div>
+      </section>
+      <section id="campaignCreate" class="panel campaign-builder card-panel" data-card-panel="campaigns" data-card-id="campaigns-create">
+        <div class="section-title"><h2>Create New Campaign</h2><span id="csvStatus" class="status-pill">CSV imported</span></div>
+        <div class="steps" role="list" aria-label="Campaign creation progress">
+          <button class="active" type="button" data-workflow-step="1"><b>1</b>Upload Contacts</button>
+          <button type="button" data-workflow-step="2"><b>2</b>Template</button>
+          <button type="button" data-workflow-step="3"><b>3</b>Rules</button>
+          <button type="button" data-workflow-step="4"><b>4</b>Launch</button>
+        </div>
+        <div class="workflow-panel active" data-workflow-panel="1">
+          <div class="upload-summary">
+            <section class="upload-card"><div class="upload-icon" data-icon="fileText"></div><h3>Upload CSV File</h3><p id="csvMeta">Loading contacts...</p><select id="csvFile"></select><div class="file-import"><input id="csvUpload" class="visually-hidden" type="file" accept=".csv,text/csv"><label id="csvUploadLabel" class="file-picker" for="csvUpload">Choose File</label><button id="uploadCsvBtn" type="button">Replace File</button></div><span id="uploadStatus"></span></section>
+            <section class="upload-card manual-recipient-card"><div class="upload-icon" data-icon="user"></div><h3>Manual Recipients</h3><p id="manualRecipientsMeta">Type email addresses without importing CSV.</p><textarea id="manualRecipients" rows="4" placeholder="john@example.com&#10;Jane Smith &lt;jane@example.com&gt;"></textarea><label class="check-row"><input id="manualOnlyRecipients" type="checkbox" checked> Use manual recipients only</label><button id="manualPreviewBtn" type="button" class="secondary">Apply Recipients</button><span id="manualRecipientsStatus"></span></section>
+            <section class="summary-card"><h3>Recipient Summary</h3><dl><div><dt>Total Contacts</dt><dd id="summaryTotal">0</dd></div><div><dt>Valid Emails</dt><dd id="metricValid">0</dd></div><div><dt>Duplicates</dt><dd id="summaryDuplicates">0</dd></div><div><dt>Invalid Emails</dt><dd id="summaryInvalid">0</dd></div><div><dt>Suppressed</dt><dd id="summarySuppressed">0</dd></div><div><dt>Company Emails</dt><dd id="summaryCompanyFiltered">0</dd></div><div><dt>Gender Filtered</dt><dd id="summaryGenderFiltered">0</dd></div></dl><div id="validReady" class="ready-pill">0 valid emails ready for campaign</div></section>
+          </div>
+        </div>
+        <div class="workflow-panel" data-workflow-panel="2">
+          <div class="campaign-template-grid">
+            <section class="template-card embedded-panel"><div class="section-title"><h2>Email Template</h2><button type="button" class="link-button">Insert Variable⌄</button></div><label>Campaign Name<input id="campaignNameStep" value="AI Engineer Outreach"></label><label>Subject<input id="subjectStep" value="Hi {{first_name}}, let's collaborate!"></label><div class="variables"><span>{{first_name}}</span><span>{{city}}</span><span>{{state}}</span><span>{{company}}</span><span>{{role}}</span><button type="button">+</button></div><label>Message<textarea id="bodyStep" rows="11">Hi {{first_name}},
+
+I came across your profile and really liked your work.
+I'm building tools that help developers land US remote opportunities,
+and I'm looking to collaborate with experienced engineers like you.
+
+Would love to connect and explore how we can help each other.
+
+Best,
+Sujanesh</textarea></label><div class="editor-footer"><span id="campaignWordCount">0 characters · 0 words</span><button id="campaignPreviewBtn" type="button" class="link-button">Preview Email →</button></div></section>
+            <aside class="preview-card embedded-panel"><h2>Email Preview</h2><div class="email-paper"><p>To: <span id="campaignPreviewTo">{{first_name}}</span></p><strong>Subject: <span id="campaignLiveSubject"></span></strong><div id="campaignLiveBody"></div></div></aside>
+          </div>
+        </div>
+        <div class="workflow-panel" data-workflow-panel="3">
+          <div class="configure-grid">
+            <div class="setting-box embedded-panel"><h3>Sending Rules</h3><label>Send every<input id="intervalStep" type="number" min="1" value="10"><span>minutes</span></label><label>Random delay<input id="intervalJitterStep" type="number" min="0" value="2"><span>minutes</span></label><label>Daily limit<input id="dailySendLimitStep" type="number" min="1" value="25"><span>emails</span></label><label>Failures before pause<input id="maxFailuresStep" type="number" min="1" value="3"><span>failures</span></label><label>Queue limit<input id="sendLimitStep" type="number" min="1" placeholder="All"></label></div>
+            <div class="setting-box embedded-panel"><h3>Time Window</h3><label>Start time<input id="businessStartStep" type="time" value="09:00"></label><label>End time<input id="businessEndStep" type="time" value="17:00"></label><label>Timezone<input id="timezoneStep" value="America/Chicago"></label></div>
+            <div class="setting-box embedded-panel"><h3>Audience Range</h3><label>Minimum age<input id="ageMinStep" type="number" min="0" max="120" value="18"><span>years</span></label><label>Maximum age<input id="ageMaxStep" type="number" min="0" max="120" value="44"><span>years</span></label><p>Applied when the CSV includes an age column.</p></div>
+            <div class="setting-box embedded-panel"><h3>Safety Options</h3><label class="check-row"><input id="autoPauseOnFailureStep" type="checkbox" checked> Auto-pause on failures</label><label class="check-row"><input id="excludeCompanyEmailsStep" type="checkbox" checked> Exclude company emails</label><label class="check-row"><input id="overrideContactedStep" type="checkbox"> Allow previously contacted contacts</label><label class="check-row"><input type="checkbox" checked> Skip invalid emails</label><label class="check-row"><input type="checkbox" checked> Remove duplicates</label></div>
+          </div>
+        </div>
+        <div class="workflow-panel" data-workflow-panel="4">
+          <section class="recipient-review-shell">
+            <div class="recipient-review-header">
+              <div class="recipient-title">
+                <span class="recipient-title-icon" data-icon="users"></span>
+                <div>
+                  <h2>Recipients <span data-icon="info"></span></h2>
+                  <p id="recipientsMeta">Showing 0 valid emails</p>
+                </div>
+              </div>
+              <div class="recipient-selected-summary">
+                <strong><span id="selectedRecipientCount">0</span> of <span id="validRecipientCount">0</span> selected</strong>
+                <small id="selectedRecipientPercent">0% of valid emails</small>
+                <span id="selectionStatus" class="sr-only">0 of 0 selected</span>
+              </div>
+              <button id="viewRecipientFiltersBtn" class="secondary filter-button" type="button"><span data-icon="filter"></span> View Filters <span data-icon="chevronDown"></span></button>
+            </div>
+
+            <div class="recipient-rules-panel">
+              <div class="recipient-rules-title">
+                <span data-icon="shield"></span>
+                <div>
+                  <h3>Recipient Rules</h3>
+                  <p>Control who gets included in this campaign</p>
+                </div>
+              </div>
+              <div class="recipient-rule-cards">
+                <label class="recipient-rule-card"><input id="selectAllRows" type="checkbox"><span class="rule-checkmark" data-icon="check"></span><strong>Select all sendable</strong><small>Only sendable contacts</small></label>
+                <label class="recipient-rule-card"><input id="excludeCompanyEmails" type="checkbox" checked><span class="rule-checkmark" data-icon="check"></span><strong>Exclude company emails</strong><small>Skip info@, support@, admin@</small></label>
+                <label class="recipient-rule-card"><input id="overrideContacted" type="checkbox"><span class="rule-checkmark" data-icon="check"></span><strong>Include already contacted</strong><small>Allow contacted contacts</small></label>
+              </div>
+            </div>
+
+            <div class="recipient-filter-panel">
+              <label><span class="filter-field-icon" data-icon="user"></span><strong>Gender</strong>
+                <select id="genderFilter">
+                  <option value="male" selected>Male only</option>
+                  <option value="female">Female only</option>
+                  <option value="all">All genders</option>
+                </select>
+              </label>
+              <label><span class="filter-field-icon" data-icon="calendar"></span><strong>Age</strong>
+                <select id="recipientAgeFilter">
+                  <option value="18-44" selected>18-44</option>
+                  <option value="18-24">18-24</option>
+                  <option value="25-34">25-34</option>
+                  <option value="35-44">35-44</option>
+                  <option value="custom">Custom</option>
+                  <option value="all">Any age</option>
+                </select>
+                <span class="age-range-controls"><input id="recipientAgeMin" type="number" min="0" max="120" value="18" aria-label="Minimum recipient age"><span>-</span><input id="recipientAgeMax" type="number" min="0" max="120" value="44" aria-label="Maximum recipient age"></span>
+              </label>
+              <label><span class="filter-field-icon" data-icon="arrowDownUp"></span><strong>Sort by</strong>
+                <select id="contactSortOrder">
+                  <option value="fresh_first" selected>Not contacted first</option>
+                  <option value="contacted_first">Already contacted first</option>
+                  <option value="sendable_first">Sendable first</option>
+                  <option value="age_low_first">Age low to high</option>
+                  <option value="age_high_first">Age high to low</option>
+                  <option value="row_order">CSV row order</option>
+                </select>
+              </label>
+              <div class="filter-note"><span data-icon="check"></span><span>These settings will be applied to your recipient list below.</span><button id="resetRecipientFiltersBtn" class="link-button" type="button"><span data-icon="rotateCcw"></span> Reset all</button></div>
+            </div>
+          </section>
+
+          <div class="section-title recipient-table-title">
+            <h2>Recipients (<span id="recipientTableCount">0</span>)</h2>
+            <span id="previewStatus"></span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Select</th><th>Row</th><th>Recipient</th><th>Status</th><th>Subject</th><th>Body Preview</th></tr></thead>
+              <tbody id="previewRows"></tbody>
+            </table>
+          </div>
+          <table class="hidden-recipient-table" aria-hidden="true"><tbody id="recipientPreviewRows"></tbody></table>
+          <div class="table-pagination">
+            <span id="contactsPageInfo">No contacts</span>
+            <label>Show
+              <select id="contactsPageSize">
+                <option value="5" selected>5</option>
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+              </select>
+            </label>
+            <div class="pager-buttons">
+              <button id="contactsPrevPage" type="button" class="secondary">Previous</button>
+              <span id="contactsPageLabel">1 / 1</span>
+              <button id="contactsNextPage" type="button" class="secondary">Next</button>
+            </div>
+          </div>
+        </div>
+        <div class="workflow-actions campaign-footer">
+          <button id="campaignBackBtn" type="button" class="secondary">Back</button>
+          <span id="workflowHint">Upload or select a CSV file to start the campaign.</span>
+          <button id="campaignContinueBtn" type="button">Continue <span data-icon="arrowRight"></span></button>
+          <div class="launch-bar inline"><button id="queueBtn" disabled><span data-icon="send"></span> Launch Campaign</button><span id="launchStatus">Ready to send to 0 recipients</span></div>
+        </div>
+      </section>
+    </section>
+
+    <section id="templates" class="page">
+      <header class="topbar"><div><h2>Templates</h2><p>Create, edit and reuse email templates</p></div><button id="newTemplateBtn" type="button"><span data-icon="plus"></span> New Template</button></header>
+      <nav class="card-nav" aria-label="Template sections">
+        <button class="active" type="button" data-card-tab="templates" data-card-target="templates-library">Template Library</button>
+        <button type="button" data-card-tab="templates" data-card-target="templates-editor">Editor</button>
+        <button type="button" data-card-tab="templates" data-card-target="templates-preview">Preview & Test</button>
+      </nav>
+      <div class="template-layout">
+        <aside class="panel template-list card-panel" data-card-panel="templates" data-card-id="templates-library"><div class="section-title"><h2>My Templates</h2></div><input id="templateSearch" class="search-input" placeholder="Search templates..."><div id="templateList" class="template-submenu expanded"></div></aside>
+        <section class="panel template-card card-panel" data-card-panel="templates" data-card-id="templates-editor"><div class="section-title"><h2>Template Name</h2><button id="insertVariableBtn" type="button" class="link-button">Insert Variable⌄</button></div><label>Campaign Name<input id="campaignName" value="AI Engineer Outreach"></label><label>Subject<input id="subject" value="Hi {{first_name}}, let's collaborate!"></label><div class="variables"><span>{{first_name}}</span><span>{{city}}</span><span>{{state}}</span><span>{{company}}</span><span>{{role}}</span><button type="button">+</button></div><label>Message<textarea id="body" rows="11">Hi {{first_name}},
+
+I came across your profile and really liked your work.
+I'm building tools that help developers land US remote opportunities,
+and I'm looking to collaborate with experienced engineers like you.
+
+Would love to connect and explore how we can help each other.
+
+Best,
+Sujanesh</textarea></label><div class="attachment-card"><div><h3>Attachments</h3><p>Images, PDFs, and supporting files</p></div><div class="attachment-actions"><input id="attachmentUpload" class="visually-hidden" type="file" multiple><label class="file-picker" for="attachmentUpload">Choose Files</label><button id="uploadAttachmentBtn" type="button" class="secondary">Upload</button></div><div id="attachmentList" class="attachment-list"></div><span id="attachmentStatus"></span></div><div class="editor-footer"><span id="wordCount">0 characters · 0 words</span><div class="toolbar-group"><button id="saveTemplateBtn" type="button"><span data-icon="check"></span> Save Template</button><button id="previewBtn" type="button" class="link-button">Preview Email →</button></div></div></section>
+        <aside class="panel preview-card card-panel" data-card-panel="templates" data-card-id="templates-preview"><h2>Preview</h2><div class="email-paper"><p>To: <span id="previewTo">{{first_name}}</span></p><strong>Subject: <span id="liveSubject"></span></strong><div id="liveBody"></div></div><button id="sendTestBtn" type="button"><span data-icon="send"></span> Send Test Email</button></aside>
+      </div>
+    </section>
+
+    <section id="replies" class="page">
+      <header class="topbar"><div><h2>Replies</h2><p>Manage and respond to email replies</p></div><div class="top-actions"><input class="search-input" placeholder="Search replies..."><button id="syncRepliesBtn" type="button"><span data-icon="inbox"></span> Sync Gmail</button></div></header>
+      <nav class="card-nav" aria-label="Reply sections">
+        <button class="active" type="button" data-card-tab="replies" data-card-target="replies-threads">Reply Threads</button>
+        <button type="button" data-card-tab="replies" data-card-target="replies-conversation">Conversation & Reply</button>
+      </nav>
+      <div class="reply-layout">
+        <aside class="panel reply-list card-panel active-card" data-card-panel="replies" data-card-id="replies-threads"><div id="replyFilters" class="tabs"><button class="active" type="button" data-reply-filter="all">All <span>0</span></button><button type="button" data-reply-filter="unread">Unread <span>0</span></button><button type="button" data-reply-filter="replied">Replied <span>0</span></button><button type="button" data-reply-filter="starred">Starred <span>0</span></button><button type="button" data-reply-filter="archived">Archived <span>0</span></button></div><div id="replyThreads" class="reply-thread-list"></div></aside>
+        <section class="panel reply-reader card-panel" data-card-panel="replies" data-card-id="replies-conversation"><div class="section-title"><div><h2 id="replySender">Gmail reply sync</h2><p id="replyMeta">No Gmail inbox polling is connected yet.</p></div><div><button id="starReplyBtn" class="icon-button" type="button" title="Star reply"><span data-icon="star"></span></button><button id="archiveReplyBtn" class="icon-button" type="button" title="Archive reply"><span data-icon="archive"></span></button><button class="icon-button" type="button"><span data-icon="more"></span></button></div></div><div id="replyMessage" class="reply-message">Connect Gmail reply polling to load actual inbound replies here. Until then, suppressions and unsubscribe events remain tracked locally.</div><div class="reply-compose"><div class="tabs"><button class="active">Reply</button><button>Note</button></div><textarea id="replyDraft" placeholder="Write your reply..."></textarea><div class="editor-footer"><div><button class="secondary"><span data-icon="paperclip"></span></button><button class="secondary"><span data-icon="link"></span></button></div><button id="sendReplyBtn" type="button"><span data-icon="send"></span> Send Reply</button></div></div></section>
+      </div>
+    </section>
+
+    <section id="contacts" class="page">
+      <header class="topbar"><div><h2>Contacts</h2><p>Imported contacts, validation status, and suppression safety</p></div></header>
+      <nav class="card-nav" aria-label="Contact sections">
+        <button class="active" type="button" data-card-tab="contacts" data-card-target="contacts-insights">Contact Insights</button>
+        <button type="button" data-card-tab="contacts" data-card-target="contacts-suppressed">Suppressed Contacts</button>
+      </nav>
+      <section class="panel card-panel active-card" data-card-panel="contacts" data-card-id="contacts-insights"><div class="section-title"><h2>Contact Insights</h2></div><div class="insights-grid"><div><h4>Top States</h4><div id="topStatesMirror"></div></div><div><h4>Email Readiness</h4><div class="summary-card flat"><dl><div><dt>Total</dt><dd id="summaryTotalMirror">0</dd></div><div><dt>Valid</dt><dd id="summaryValidMirror">0</dd></div><div><dt>Invalid</dt><dd id="summaryInvalidMirror">0</dd></div><div><dt>Suppressed</dt><dd id="summarySuppressedMirror">0</dd></div><div><dt>Company Emails</dt><dd id="summaryCompanyFilteredMirror">0</dd></div><div><dt>Gender Filtered</dt><dd id="summaryGenderFilteredMirror">0</dd></div></dl></div></div></div></section>
+      <section class="panel suppressed-panel card-panel" data-card-panel="contacts" data-card-id="contacts-suppressed"><div class="section-title"><h2>Suppressed Contacts</h2><button id="refreshSuppressionsBtn" type="button" class="link-button">Refresh</button></div><div class="suppression-form"><input id="suppressEmail" type="email" placeholder="person@example.com"><select id="suppressReason"><option value="manual">manual</option><option value="unsubscribed">unsubscribed</option><option value="bounced">bounced</option><option value="blocked">blocked</option><option value="complained">complained</option><option value="replied_stop">replied stop</option></select><input id="suppressNote" placeholder="Optional note"><button id="suppressBtn" type="button">Suppress</button></div><div id="suppressions"></div></section>
+    </section>
+
+    <section id="settings" class="page">
+      <header class="topbar"><div><h2>Settings</h2><p>Configure email sending rules and preferences</p></div></header>
+      <nav class="card-nav" aria-label="Settings sections">
+        <button class="active" type="button" data-card-tab="settings" data-card-target="settings-sending">Sending Rules</button>
+        <button type="button" data-card-tab="settings" data-card-target="settings-window">Time Window</button>
+        <button type="button" data-card-tab="settings" data-card-target="settings-audience">Audience</button>
+        <button type="button" data-card-tab="settings" data-card-target="settings-safety">Safety</button>
+        <button type="button" data-card-tab="settings" data-card-target="settings-gmail">Gmail Account</button>
+        <button type="button" data-card-tab="settings" data-card-target="settings-notifications">Notifications</button>
+        <button type="button" data-card-tab="settings" data-card-target="settings-advanced">Advanced</button>
+      </nav>
+      <div class="settings-layout">
+        <nav class="panel settings-menu"><button class="active">Sending Rules</button><button>Gmail Account</button><button>Safety & Limits</button><button>Notifications</button><button>Preferences</button><button>Integrations</button><button>Billing</button></nav>
+        <section class="settings-grid">
+          <div class="panel setting-box card-panel active-card" data-card-panel="settings" data-card-id="settings-sending"><h3>Sending Rules</h3><label>Send every<input id="interval" type="number" min="1" value="10"><span>minutes</span></label><label>Random delay<input id="intervalJitter" type="number" min="0" value="2"><span>minutes</span></label><label>Daily limit<input id="dailySendLimit" type="number" min="1" value="25"><span>emails</span></label><label>Failures before pause<input id="maxFailures" type="number" min="1" value="3"><span>failures</span></label><label>Queue limit<input id="sendLimit" type="number" min="1" placeholder="All"></label></div>
+          <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-window"><h3>Time Window</h3><label>Start time<input id="businessStart" type="time" value="09:00"></label><label>End time<input id="businessEnd" type="time" value="17:00"></label><label>Timezone<input id="timezone" value="America/Chicago"></label></div>
+          <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-audience"><h3>Audience Range</h3><label>Minimum age<input id="ageMin" type="number" min="0" max="120" value="18"><span>years</span></label><label>Maximum age<input id="ageMax" type="number" min="0" max="120" value="44"><span>years</span></label><p>CSV files can be imported without age data. Age filters are applied only to contacts that include an age value.</p></div>
+          <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-safety"><h3>Safety Options</h3><label class="check-row"><input id="autoPauseOnFailure" type="checkbox" checked> Auto-pause on failures</label><label class="check-row"><input id="excludeCompanyEmailsSetting" type="checkbox" checked> Exclude company emails</label><label class="check-row"><input type="checkbox" checked> Respect Gmail daily limits</label><label class="check-row"><input type="checkbox" checked> Skip invalid emails</label><label class="check-row"><input type="checkbox" checked> Remove duplicates</label></div>
+          <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-gmail"><h3>Gmail Account</h3><button class="gmail-card settings-gmail" type="button">Gmail status</button><button class="secondary disconnect" type="button">Disconnect</button></div>
+          <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-notifications"><h3>Notifications</h3><label class="check-row"><input type="checkbox" checked> Email me on failures</label><label class="check-row"><input type="checkbox" checked> Daily summary email</label><label class="check-row"><input type="checkbox"> Campaign completion alert</label></div>
+          <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-advanced"><h3>Advanced</h3><label>Max concurrent sends<input type="number" value="2"></label><label>Retry failed emails<input type="number" value="2"><span>times</span></label></div>
+        </section>
+      </div>
+    </section>
+  </main>
+  <div id="launchConfirmModal" class="modal-backdrop" hidden>
+    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="launchConfirmTitle">
+      <div class="modal-icon" data-icon="send"></div>
+      <div>
+        <h2 id="launchConfirmTitle">Launch campaign?</h2>
+        <p>This will create a scheduled sending queue for the selected recipients.</p>
+      </div>
+      <dl class="modal-summary">
+        <div><dt>Campaign</dt><dd id="confirmCampaignName">Untitled Campaign</dd></div>
+        <div><dt>Recipients</dt><dd id="confirmRecipientCount">0 selected</dd></div>
+        <div><dt>Send every</dt><dd id="confirmSendRule">10 minutes</dd></div>
+        <div><dt>Daily limit</dt><dd id="confirmDailyLimit">25 emails</dd></div>
+      </dl>
+      <div class="modal-actions">
+        <button id="cancelLaunchBtn" type="button" class="secondary">Cancel</button>
+        <button id="confirmLaunchBtn" type="button"><span data-icon="send"></span> Launch Campaign</button>
+      </div>
+    </section>
+  </div>
+  <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
