@@ -4,7 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CSV Email Assistant</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230f766e' stroke-width='2'%3E%3Crect width='20' height='16' x='2' y='4' rx='2'/%3E%3Cpath d='m22 7-8.97 5.7a2 2 0 0 1-2.06 0L2 7'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/static/styles.css">
+  <script>
+    (function () {
+      var theme = localStorage.getItem("theme");
+      if (theme === "dark") document.documentElement.dataset.theme = "dark";
+    })();
+  </script>
 </head>
 <body>
   <section id="login" class="login-page page">
@@ -148,13 +155,13 @@
         <div class="workflow-panel active" data-workflow-panel="1">
           <div class="upload-summary">
             <section class="upload-card"><div class="upload-icon" data-icon="fileText"></div><h3>Upload CSV File</h3><p id="csvMeta">Loading contacts...</p><select id="csvFile"></select><div class="file-import"><input id="csvUpload" class="visually-hidden" type="file" accept=".csv,text/csv"><label id="csvUploadLabel" class="file-picker" for="csvUpload">Choose File</label><button id="uploadCsvBtn" type="button">Replace File</button></div><span id="uploadStatus"></span></section>
-            <section class="upload-card manual-recipient-card"><div class="upload-icon" data-icon="user"></div><h3>Manual Recipients</h3><p id="manualRecipientsMeta">Type email addresses without importing CSV.</p><textarea id="manualRecipients" rows="4" placeholder="john@example.com&#10;Jane Smith &lt;jane@example.com&gt;"></textarea><label class="check-row"><input id="manualOnlyRecipients" type="checkbox" checked> Use manual recipients only</label><button id="manualPreviewBtn" type="button" class="secondary">Apply Recipients</button><span id="manualRecipientsStatus"></span></section>
+            <section class="upload-card manual-recipient-card"><div class="upload-icon" data-icon="user"></div><h3>Manual Recipients</h3><p id="manualRecipientsMeta">Type email addresses without importing CSV.</p><textarea id="manualRecipients" rows="4" placeholder="john@example.com&#10;Jane Smith &lt;jane@example.com&gt;"></textarea><label class="check-row"><input id="manualOnlyRecipients" type="checkbox"> Use manual recipients only</label><button id="manualPreviewBtn" type="button" class="secondary">Apply Recipients</button><span id="manualRecipientsStatus"></span></section>
             <section class="summary-card"><h3>Recipient Summary</h3><dl><div><dt>Total Contacts</dt><dd id="summaryTotal">0</dd></div><div><dt>Valid Emails</dt><dd id="metricValid">0</dd></div><div><dt>Duplicates</dt><dd id="summaryDuplicates">0</dd></div><div><dt>Invalid Emails</dt><dd id="summaryInvalid">0</dd></div><div><dt>Suppressed</dt><dd id="summarySuppressed">0</dd></div><div><dt>Company Emails</dt><dd id="summaryCompanyFiltered">0</dd></div><div><dt>Gender Filtered</dt><dd id="summaryGenderFiltered">0</dd></div></dl><div id="validReady" class="ready-pill">0 valid emails ready for campaign</div></section>
           </div>
         </div>
         <div class="workflow-panel" data-workflow-panel="2">
           <div class="campaign-template-grid">
-            <section class="template-card embedded-panel"><div class="section-title"><h2>Email Template</h2><button type="button" class="link-button">Insert Variable⌄</button></div><label>Campaign Name<input id="campaignNameStep" value="AI Engineer Outreach"></label><label>Subject<input id="subjectStep" value="Hi {{first_name}}, let's collaborate!"></label><div class="variables"><span>{{first_name}}</span><span>{{city}}</span><span>{{state}}</span><span>{{company}}</span><span>{{role}}</span><button type="button">+</button></div><label>Message<textarea id="bodyStep" rows="11">Hi {{first_name}},
+            <section class="template-card embedded-panel"><div class="section-title"><h2>Email Template</h2><span class="variables-hint">Click a variable to insert it</span></div><label>Campaign Name<input id="campaignNameStep" value="AI Engineer Outreach"></label><label>Subject<input id="subjectStep" value="Hi {{first_name}}, let's collaborate!"></label><div class="variables" data-subject-field="subjectStep" data-body-field="bodyStep" aria-label="Insert a variable"></div><label>Message<textarea id="bodyStep" rows="11">Hi {{first_name}},
 
 I came across your profile and really liked your work.
 I'm building tools that help developers land US remote opportunities,
@@ -163,7 +170,7 @@ and I'm looking to collaborate with experienced engineers like you.
 Would love to connect and explore how we can help each other.
 
 Best,
-Sujanesh</textarea></label><div class="editor-footer"><span id="campaignWordCount">0 characters · 0 words</span><button id="campaignPreviewBtn" type="button" class="link-button">Preview Email →</button></div></section>
+Sujanesh</textarea></label><div class="editor-footer"><span id="campaignWordCount">0 characters · 0 words</span><button id="campaignPreviewBtn" type="button" class="link-button">Preview email</button></div></section>
             <aside class="preview-card embedded-panel"><h2>Email Preview</h2><div class="email-paper"><p>To: <span id="campaignPreviewTo">{{first_name}}</span></p><strong>Subject: <span id="campaignLiveSubject"></span></strong><div id="campaignLiveBody"></div></div></aside>
           </div>
         </div>
@@ -202,9 +209,9 @@ Sujanesh</textarea></label><div class="editor-footer"><span id="campaignWordCoun
                 </div>
               </div>
               <div class="recipient-rule-cards">
-                <label class="recipient-rule-card"><input id="selectAllRows" type="checkbox"><span class="rule-checkmark" data-icon="check"></span><strong>Select all sendable</strong><small>Only sendable contacts</small></label>
-                <label class="recipient-rule-card"><input id="excludeCompanyEmails" type="checkbox" checked><span class="rule-checkmark" data-icon="check"></span><strong>Exclude company emails</strong><small>Skip info@, support@, admin@</small></label>
-                <label class="recipient-rule-card"><input id="overrideContacted" type="checkbox"><span class="rule-checkmark" data-icon="check"></span><strong>Include already contacted</strong><small>Allow contacted contacts</small></label>
+                <div class="recipient-rule-card"><input id="selectAllRows" type="checkbox" aria-label="Select all sendable"><label for="selectAllRows"><strong>Select all sendable</strong><small>Only sendable contacts</small></label></div>
+                <div class="recipient-rule-card"><input id="excludeCompanyEmails" type="checkbox" checked aria-label="Exclude company emails"><label for="excludeCompanyEmails"><strong>Exclude company emails</strong><small>Skip info@, support@, admin@</small></label></div>
+                <div class="recipient-rule-card"><input id="overrideContacted" type="checkbox" aria-label="Include already contacted"><label for="overrideContacted"><strong>Include already contacted</strong><small>Allow contacted contacts</small></label></div>
               </div>
             </div>
 
@@ -281,13 +288,11 @@ Sujanesh</textarea></label><div class="editor-footer"><span id="campaignWordCoun
     <section id="templates" class="page">
       <header class="topbar"><div><h2>Templates</h2><p>Create, edit and reuse email templates</p></div><button id="newTemplateBtn" type="button"><span data-icon="plus"></span> New Template</button></header>
       <nav class="card-nav" aria-label="Template sections">
-        <button class="active" type="button" data-card-tab="templates" data-card-target="templates-library">Template Library</button>
-        <button type="button" data-card-tab="templates" data-card-target="templates-editor">Editor</button>
+        <button class="active" type="button" data-card-tab="templates" data-card-target="templates-editor">Editor</button>
         <button type="button" data-card-tab="templates" data-card-target="templates-preview">Preview & Test</button>
       </nav>
       <div class="template-layout">
-        <aside class="panel template-list card-panel" data-card-panel="templates" data-card-id="templates-library"><div class="section-title"><h2>My Templates</h2></div><input id="templateSearch" class="search-input" placeholder="Search templates..."><div id="templateList" class="template-submenu expanded"></div></aside>
-        <section class="panel template-card card-panel" data-card-panel="templates" data-card-id="templates-editor"><div class="section-title"><h2>Template Name</h2><button id="insertVariableBtn" type="button" class="link-button">Insert Variable⌄</button></div><label>Campaign Name<input id="campaignName" value="AI Engineer Outreach"></label><label>Subject<input id="subject" value="Hi {{first_name}}, let's collaborate!"></label><div class="variables"><span>{{first_name}}</span><span>{{city}}</span><span>{{state}}</span><span>{{company}}</span><span>{{role}}</span><button type="button">+</button></div><label>Message<textarea id="body" rows="11">Hi {{first_name}},
+        <section class="panel template-card card-panel active-card" data-card-panel="templates" data-card-id="templates-editor"><div class="section-title"><h2>Template Editor</h2><div class="toolbar-group"><span class="variables-hint">Click a variable to insert it</span><button id="deleteTemplateBtn" type="button" class="secondary danger" hidden>Delete</button></div></div><label>Template Name<input id="campaignName" value="AI Engineer Outreach"></label><label>Subject<input id="subject" value="Hi {{first_name}}, let's collaborate!"></label><div class="variables" data-subject-field="subject" data-body-field="body" aria-label="Insert a variable"></div><label>Message<textarea id="body" rows="11">Hi {{first_name}},
 
 I came across your profile and really liked your work.
 I'm building tools that help developers land US remote opportunities,
@@ -296,7 +301,7 @@ and I'm looking to collaborate with experienced engineers like you.
 Would love to connect and explore how we can help each other.
 
 Best,
-Sujanesh</textarea></label><div class="attachment-card"><div><h3>Attachments</h3><p>Images, PDFs, and supporting files</p></div><div class="attachment-actions"><input id="attachmentUpload" class="visually-hidden" type="file" multiple><label class="file-picker" for="attachmentUpload">Choose Files</label><button id="uploadAttachmentBtn" type="button" class="secondary">Upload</button></div><div id="attachmentList" class="attachment-list"></div><span id="attachmentStatus"></span></div><div class="editor-footer"><span id="wordCount">0 characters · 0 words</span><div class="toolbar-group"><button id="saveTemplateBtn" type="button"><span data-icon="check"></span> Save Template</button><button id="previewBtn" type="button" class="link-button">Preview Email →</button></div></div></section>
+Sujanesh</textarea></label><div class="attachment-card"><div><h3>Attachments</h3><p>Images, PDFs, and supporting files</p></div><div class="attachment-actions"><input id="attachmentUpload" class="visually-hidden" type="file" multiple><label class="file-picker" for="attachmentUpload">Choose Files</label><button id="uploadAttachmentBtn" type="button" class="secondary">Upload</button></div><div id="attachmentList" class="attachment-list"></div><span id="attachmentStatus"></span></div><div class="editor-footer"><span id="wordCount">0 characters · 0 words</span><div class="toolbar-group"><button id="saveTemplateBtn" type="button"><span data-icon="check"></span> Save Template</button><button id="previewBtn" type="button" class="link-button">Preview email</button></div></div></section>
         <aside class="panel preview-card card-panel" data-card-panel="templates" data-card-id="templates-preview"><h2>Preview</h2><div class="email-paper"><p>To: <span id="previewTo">{{first_name}}</span></p><strong>Subject: <span id="liveSubject"></span></strong><div id="liveBody"></div></div><button id="sendTestBtn" type="button"><span data-icon="send"></span> Send Test Email</button></aside>
       </div>
     </section>
@@ -332,6 +337,7 @@ Sujanesh</textarea></label><div class="attachment-card"><div><h3>Attachments</h3
         <button type="button" data-card-tab="settings" data-card-target="settings-safety">Safety</button>
         <button type="button" data-card-tab="settings" data-card-target="settings-gmail">Gmail Account</button>
         <button type="button" data-card-tab="settings" data-card-target="settings-notifications">Notifications</button>
+        <button type="button" data-card-tab="settings" data-card-target="settings-appearance">Appearance</button>
         <button type="button" data-card-tab="settings" data-card-target="settings-advanced">Advanced</button>
       </nav>
       <div class="settings-layout">
@@ -343,6 +349,7 @@ Sujanesh</textarea></label><div class="attachment-card"><div><h3>Attachments</h3
           <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-safety"><h3>Safety Options</h3><label class="check-row"><input id="autoPauseOnFailure" type="checkbox" checked> Auto-pause on failures</label><label class="check-row"><input id="excludeCompanyEmailsSetting" type="checkbox" checked> Exclude company emails</label><label class="check-row"><input type="checkbox" checked> Respect Gmail daily limits</label><label class="check-row"><input type="checkbox" checked> Skip invalid emails</label><label class="check-row"><input type="checkbox" checked> Remove duplicates</label></div>
           <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-gmail"><h3>Gmail Account</h3><button class="gmail-card settings-gmail" type="button">Gmail status</button><button class="secondary disconnect" type="button">Disconnect</button></div>
           <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-notifications"><h3>Notifications</h3><label class="check-row"><input type="checkbox" checked> Email me on failures</label><label class="check-row"><input type="checkbox" checked> Daily summary email</label><label class="check-row"><input type="checkbox"> Campaign completion alert</label></div>
+          <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-appearance"><h3>Appearance</h3><p>Choose how the app looks on this device.</p><div class="theme-options" role="radiogroup" aria-label="Color theme"><label class="theme-option"><input type="radio" name="themePreference" value="light" checked><span class="theme-option-preview theme-preview-daylight" aria-hidden="true"></span><span><strong>Daylight</strong><small>Bright surfaces and soft contrast</small></span></label><label class="theme-option"><input type="radio" name="themePreference" value="dark"><span class="theme-option-preview theme-preview-dark" aria-hidden="true"></span><span><strong>Dark</strong><small>Dimmed backgrounds for low light</small></span></label></div></div>
           <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-advanced"><h3>Advanced</h3><label>Max concurrent sends<input type="number" value="2"></label><label>Retry failed emails<input type="number" value="2"><span>times</span></label></div>
         </section>
       </div>
@@ -364,6 +371,19 @@ Sujanesh</textarea></label><div class="attachment-card"><div><h3>Attachments</h3
       <div class="modal-actions">
         <button id="cancelLaunchBtn" type="button" class="secondary">Cancel</button>
         <button id="confirmLaunchBtn" type="button"><span data-icon="send"></span> Launch Campaign</button>
+      </div>
+    </section>
+  </div>
+  <div id="confirmModal" class="modal-backdrop" hidden>
+    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+      <div class="modal-icon danger" data-icon="trash"></div>
+      <div>
+        <h2 id="confirmModalTitle">Delete item?</h2>
+        <p id="confirmModalMessage">This action cannot be undone.</p>
+      </div>
+      <div class="modal-actions">
+        <button id="confirmModalCancelBtn" type="button" class="secondary">Cancel</button>
+        <button id="confirmModalConfirmBtn" type="button" class="danger-solid"><span data-icon="trash"></span> Delete</button>
       </div>
     </section>
   </div>

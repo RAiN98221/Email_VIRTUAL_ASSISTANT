@@ -64,6 +64,7 @@ const ICONS = {
   user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   arrowDownUp: '<path d="m3 16 4 4 4-4"/><path d="M7 20V4"/><path d="m21 8-4-4-4 4"/><path d="M17 4v16"/>',
+  ban: '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
 };
 
 function initIcons(root = document) {
@@ -186,6 +187,7 @@ function showToast(message, tone = "info", title = null) {
 
 function applyTheme(theme = state.theme) {
   state.theme = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = state.theme;
   document.body.dataset.theme = state.theme;
   localStorage.setItem("theme", state.theme);
   const icon = $("themeToggleIcon");
@@ -195,8 +197,14 @@ function applyTheme(theme = state.theme) {
   }
   if ($("themeToggleBtn")) {
     $("themeToggleBtn").setAttribute("aria-pressed", String(state.theme === "dark"));
-    $("themeToggleBtn").setAttribute("title", state.theme === "dark" ? "Switch to light theme" : "Switch to dark theme");
+    $("themeToggleBtn").setAttribute(
+      "title",
+      state.theme === "dark" ? "Switch to daylight theme" : "Switch to dark theme",
+    );
   }
+  document.querySelectorAll('input[name="themePreference"]').forEach((input) => {
+    input.checked = input.value === state.theme;
+  });
 }
 
 function notificationItems() {
@@ -372,6 +380,11 @@ function showCardPanel(group, target) {
       button.classList.toggle("active", button.dataset.cardTarget === "campaigns-review");
     });
     showWorkflowStep(4);
+    if (state.preview?.rows?.length) {
+      renderPreviewTable();
+      renderRecipientPreview();
+    }
+    refreshPreview().catch((error) => showToast(error, "error", "Preview failed"));
     return;
   }
   document.querySelectorAll(`[data-card-panel="${group}"]`).forEach((panel) => {
@@ -388,8 +401,7 @@ function hasRunningCampaign() {
 }
 
 function showDefaultCampaignPanel() {
-  showCardPanel("campaigns", hasRunningCampaign() ? "campaigns-activity" : "campaigns-create");
-  if (!hasRunningCampaign()) showWorkflowStep(1);
+  showCardPanel("campaigns", "campaigns-activity");
 }
 
 function showWorkflowStep(step) {
@@ -447,7 +459,12 @@ async function loadCsvFiles() {
     state.selectedCsv = $("csvFile").value;
     localStorage.setItem("selectedCsv", state.selectedCsv);
   }
-  await refreshPreview();
+  // A preview failure must not block loading replies.
+  try {
+    await refreshPreview();
+  } catch (error) {
+    showToast(error, "error", "Preview failed");
+  }
   await loadReplies();
 }
 
@@ -522,14 +539,6 @@ function renderAttachments() {
 }
 
 function renderTemplateList() {
-  const query = ($("templateSearch")?.value || "").toLowerCase().trim();
-  const templates = state.templates.filter((template) => !query || template.name.toLowerCase().includes(query));
-  $("templateList").innerHTML = templates.length ? templates.map((template) => `
-    <button class="template-item ${template.id === state.selectedTemplateId ? "active" : ""}" type="button" data-template-id="${escapeHtml(template.id)}">
-      <strong>${escapeHtml(template.name)}</strong>
-      <span>${escapeHtml(formatDate(template.updated_at))}</span>
-    </button>
-  `).join("") : '<p class="empty-state">No saved templates yet.</p>';
   renderSidebarTemplateList();
 }
 
@@ -550,8 +559,30 @@ function applyTemplate(template) {
   $("campaignName").value = template?.name || "Untitled Template";
   $("subject").value = template?.subject || "Hi {{first_name}}, let's collaborate!";
   $("body").value = template?.body || "";
+  if ($("deleteTemplateBtn")) {
+    $("deleteTemplateBtn").hidden = !state.selectedTemplateId;
+  }
   renderLiveEmail();
   renderTemplateList();
+}
+
+async function deleteCurrentTemplate() {
+  if (!state.selectedTemplateId) return;
+  const template = state.templates.find((entry) => entry.id === state.selectedTemplateId);
+  const confirmed = await confirmAction({
+    title: "Delete template?",
+    message: `"${template?.name || "This template"}" will be permanently removed. This cannot be undone.`,
+    confirmLabel: "Delete Template",
+  });
+  if (!confirmed) return;
+  await api(`/api/templates/${encodeURIComponent(state.selectedTemplateId)}`, { method: "DELETE" });
+  state.selectedTemplateId = null;
+  await loadTemplates();
+  if (!state.templates.length) {
+    applyTemplate({ id: null, name: "Untitled Template", subject: "Hi {{first_name}},", body: "Hi {{first_name}},\n\n" });
+  }
+  $("toastRegion").innerHTML = "";
+  showToast("Template deleted.", "success", "Template deleted");
 }
 
 async function loadTemplates() {
@@ -715,7 +746,8 @@ function renderInsights() {
 
 function renderRecipientPreview() {
   const valid = sendableRows();
-  $("recipientsMeta").textContent = `Showing ${Math.min(5, valid.length)} of ${valid.length} valid emails`;
+  const contactedNote = $("overrideContacted")?.checked ? " (including contacted)" : "";
+  $("recipientsMeta").textContent = `Showing ${Math.min(5, valid.length)} of ${valid.length} valid emails${contactedNote}`;
   $("recipientPreviewRows").innerHTML = valid.slice(0, 5).map((row) => `<tr>
     <td>${escapeHtml(`${row.first_name} ${row.last_name}`)}</td>
     <td>${escapeHtml(row.email)}</td>
@@ -773,6 +805,53 @@ function renderCampaignLiveEmail(sampleRow = null) {
   $("campaignWordCount").textContent = `${chars} characters · ${words} words`;
 }
 
+const DEFAULT_TEMPLATE_VARIABLES = ["first_name", "last_name", "city", "state", "company", "role"];
+
+function availableTemplateVariables() {
+  const names = [...DEFAULT_TEMPLATE_VARIABLES];
+  const rowData = state.preview?.rows?.[0]?.row_data || {};
+  Object.keys(rowData).forEach((key) => {
+    const name = key.trim();
+    if (name && !names.includes(name)) names.push(name);
+  });
+  return names;
+}
+
+function renderVariableChips() {
+  const chips = availableTemplateVariables()
+    .map((name) => `<button type="button" class="variable-chip" data-insert="{{${escapeHtml(name)}}}" title="Insert {{${escapeHtml(name)}}} at the cursor">{{${escapeHtml(name)}}}</button>`)
+    .join("");
+  document.querySelectorAll(".variables").forEach((container) => {
+    container.innerHTML = chips;
+  });
+}
+
+function insertAtCursor(field, text) {
+  const start = field.selectionStart ?? field.value.length;
+  const end = field.selectionEnd ?? start;
+  field.value = `${field.value.slice(0, start)}${text}${field.value.slice(end)}`;
+  const cursor = start + text.length;
+  field.focus();
+  field.setSelectionRange(cursor, cursor);
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+document.querySelectorAll(".variables").forEach((container) => {
+  const subjectField = $(container.dataset.subjectField);
+  const bodyField = $(container.dataset.bodyField);
+  let targetField = bodyField;
+  [subjectField, bodyField].forEach((field) => {
+    field.addEventListener("focus", () => { targetField = field; });
+  });
+  // Keep the input focused (and its cursor position) while clicking a chip.
+  container.addEventListener("mousedown", (event) => event.preventDefault());
+  container.addEventListener("click", (event) => {
+    const chip = event.target.closest("button[data-insert]");
+    if (!chip) return;
+    insertAtCursor(targetField, chip.dataset.insert);
+  });
+});
+
 function renderSchedulePreview() {
   const interval = Number(fieldValue("intervalStep", "interval") || 10);
   const jitter = Number(fieldValue("intervalJitterStep", "intervalJitter") || 0);
@@ -812,26 +891,47 @@ function updateCampaignFooter() {
   $("campaignBackBtn").disabled = state.campaignStep === 1;
 }
 
-async function refreshPreview() {
-  const manualEntries = manualRecipientEntries();
-  const manualOnly = $("manualOnlyRecipients").checked && manualEntries.length > 0;
-  if ($("csvFile").value === "__pending_upload__" && !manualOnly) {
-    throw new Error("Import the selected CSV before previewing or launching.");
+let previewRefreshChain = Promise.resolve();
+
+function setPreviewControlsBusy(busy) {
+  ["selectAllRows", "overrideContacted", "excludeCompanyEmails", "genderFilter", "recipientAgeFilter", "contactSortOrder"].forEach((id) => {
+    const control = $(id);
+    if (control) control.disabled = busy;
+  });
+}
+
+async function refreshPreviewNow() {
+  setPreviewControlsBusy(true);
+  try {
+    const manualEntries = manualRecipientEntries();
+    const manualOnly = $("manualOnlyRecipients").checked && manualEntries.length > 0;
+    if ($("csvFile").value === "__pending_upload__" && !manualOnly) {
+      throw new Error("Import the selected CSV before previewing or launching.");
+    }
+    state.preview = await api("/api/preview", { method: "POST", body: JSON.stringify(payload()) });
+    state.selectedRows = new Set(sendableRows().map((row) => row.row_index));
+    state.contactsPage = 1;
+    $("csvMeta").textContent = manualOnly
+      ? "CSV skipped while manual-only mode is on"
+      : `${state.preview.summary.total} contacts from ${$("csvFile").selectedOptions[0]?.textContent || "CSV"}`;
+    $("csvStatus").textContent = manualOnly ? "Manual recipients" : "CSV imported";
+    updateManualRecipientsStatus();
+    renderMetrics();
+    renderInsights();
+    renderRecipientPreview();
+    renderPreviewTable();
+    renderLiveEmail();
+    renderSchedulePreview();
+    renderVariableChips();
+  } finally {
+    setPreviewControlsBusy(false);
   }
-  state.preview = await api("/api/preview", { method: "POST", body: JSON.stringify(payload()) });
-  state.selectedRows = new Set(sendableRows().map((row) => row.row_index));
-  state.contactsPage = 1;
-  $("csvMeta").textContent = manualOnly
-    ? "CSV skipped while manual-only mode is on"
-    : `${state.preview.summary.total} contacts from ${$("csvFile").selectedOptions[0]?.textContent || "CSV"}`;
-  $("csvStatus").textContent = manualOnly ? "Manual recipients" : "CSV imported";
-  updateManualRecipientsStatus();
-  renderMetrics();
-  renderInsights();
-  renderRecipientPreview();
-  renderPreviewTable();
-  renderLiveEmail();
-  renderSchedulePreview();
+}
+
+function refreshPreview() {
+  const next = previewRefreshChain.then(() => refreshPreviewNow());
+  previewRefreshChain = next.catch(() => {});
+  return next;
 }
 
 async function loadJobs() {
@@ -866,7 +966,8 @@ function renderJobsTable() {
         <button data-action="details" data-id="${job.id}" title="Details"><span data-icon="eye"></span></button>
         <button data-action="pause" data-id="${job.id}" title="Pause"><span data-icon="pause"></span></button>
         <button data-action="resume" data-id="${job.id}" title="Resume"><span data-icon="play"></span></button>
-        <button data-action="cancel" data-id="${job.id}" title="Cancel"><span data-icon="trash"></span></button>
+        <button data-action="cancel" data-id="${job.id}" title="Cancel sending"><span data-icon="ban"></span></button>
+        <button data-action="delete" data-id="${job.id}" data-name="${escapeHtml(job.campaign_name || job.id)}" title="Delete"><span data-icon="trash"></span></button>
       </td>
     </tr>`;
   }).join("") : '<tr><td colspan="7">No campaigns yet.</td></tr>';
@@ -1021,13 +1122,47 @@ async function launchCampaign() {
 }
 
 function setDefaultStartTime() {
+  const endValue = $("businessEnd")?.value || "17:00";
   const now = new Date();
-  const value = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const nowValue = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const value = nowValue < endValue ? nowValue : "09:00";
   $("businessStart").value = value;
   $("businessStartStep").value = value;
 }
 
-$("previewBtn").addEventListener("click", () => refreshPreview().catch((error) => showToast(error, "error", "Preview failed")));
+let confirmModalResolve = null;
+
+function confirmAction({ title, message, confirmLabel = "Delete" }) {
+  $("confirmModalTitle").textContent = title;
+  $("confirmModalMessage").textContent = message;
+  $("confirmModalConfirmBtn").innerHTML = `<span data-icon="trash"></span> ${escapeHtml(confirmLabel)}`;
+  initIcons($("confirmModal"));
+  $("confirmModal").hidden = false;
+  $("confirmModalConfirmBtn").focus();
+  return new Promise((resolve) => { confirmModalResolve = resolve; });
+}
+
+function closeConfirmModal(result) {
+  $("confirmModal").hidden = true;
+  if (confirmModalResolve) {
+    confirmModalResolve(result);
+    confirmModalResolve = null;
+  }
+}
+
+$("confirmModalCancelBtn").addEventListener("click", () => closeConfirmModal(false));
+$("confirmModalConfirmBtn").addEventListener("click", () => closeConfirmModal(true));
+$("confirmModal").addEventListener("click", (event) => {
+  if (event.target.id === "confirmModal") closeConfirmModal(false);
+});
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !$("confirmModal").hidden) closeConfirmModal(false);
+});
+
+$("previewBtn").addEventListener("click", () => {
+  renderLiveEmail();
+  showCardPanel("templates", "templates-preview");
+});
 $("queueBtn").addEventListener("click", openLaunchConfirmModal);
 $("cancelLaunchBtn").addEventListener("click", closeLaunchConfirmModal);
 $("launchConfirmModal").addEventListener("click", (event) => {
@@ -1146,7 +1281,10 @@ $("selectAllRows").addEventListener("change", () => {
   document.querySelectorAll(".row-select").forEach((checkbox) => { if (!checkbox.disabled) checkbox.checked = $("selectAllRows").checked; });
   updateSelectionStatus();
 });
-$("overrideContacted").addEventListener("change", () => refreshPreview().catch((error) => showToast(error, "error", "Preview failed")));
+$("overrideContacted").addEventListener("change", () => {
+  renderRecipientPreview();
+  refreshPreview().catch((error) => showToast(error, "error", "Preview failed"));
+});
 $("overrideContactedStep").addEventListener("change", async () => {
   $("overrideContacted").checked = $("overrideContactedStep").checked;
   await refreshPreview().catch((error) => showToast(error, "error", "Preview failed"));
@@ -1254,6 +1392,18 @@ $("jobs").addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-action]");
   if (!button) return;
   if (button.dataset.action === "details") return loadQueueDetails(button.dataset.id);
+  if (button.dataset.action === "delete") {
+    const confirmed = await confirmAction({
+      title: "Delete campaign?",
+      message: `"${button.dataset.name}" and its sending queue will be permanently removed. This cannot be undone.`,
+      confirmLabel: "Delete Campaign",
+    });
+    if (!confirmed) return;
+    await api(`/api/jobs/${button.dataset.id}`, { method: "DELETE" });
+    await loadJobs();
+    showToast("Campaign deleted.", "success", "Campaign removed");
+    return;
+  }
   await api(`/api/jobs/${button.dataset.id}/${button.dataset.action}`, { method: "POST", body: "{}" });
   await loadJobs();
   await loadStatusSummary();
@@ -1354,16 +1504,8 @@ $("newTemplateBtn").addEventListener("click", () => {
   showCardPanel("templates", "templates-editor");
 });
 $("saveTemplateBtn").addEventListener("click", () => saveCurrentTemplate().catch((error) => showToast(error, "error", "Template save failed")));
-$("templateSearch").addEventListener("input", renderTemplateList);
+$("deleteTemplateBtn")?.addEventListener("click", () => deleteCurrentTemplate().catch((error) => showToast(error, "error", "Delete failed")));
 $("sideTemplateSearch").addEventListener("input", renderSidebarTemplateList);
-$("templateList").addEventListener("click", (event) => {
-  const item = event.target.closest("[data-template-id]");
-  if (!item) return;
-  const template = state.templates.find((entry) => entry.id === item.dataset.templateId);
-  if (!template) return;
-  applyTemplate(template);
-  showCardPanel("templates", "templates-editor");
-});
 $("sideTemplateList").addEventListener("click", (event) => {
   const item = event.target.closest("[data-template-id]");
   if (!item) return;
@@ -1393,7 +1535,15 @@ $("notificationList").addEventListener("click", (event) => {
 });
 $("themeToggleBtn").addEventListener("click", () => {
   applyTheme(state.theme === "dark" ? "light" : "dark");
-  showToast(`Theme switched to ${state.theme} mode.`, "success", "Theme updated");
+  showToast(`Theme switched to ${state.theme === "dark" ? "dark" : "daylight"} mode.`, "success", "Theme updated");
+});
+
+document.querySelectorAll('input[name="themePreference"]').forEach((input) => {
+  input.addEventListener("change", () => {
+    if (!input.checked) return;
+    applyTheme(input.value);
+    showToast(`Theme switched to ${state.theme === "dark" ? "dark" : "daylight"} mode.`, "success", "Theme updated");
+  });
 });
 $("campaignBackBtn").addEventListener("click", () => showWorkflowStep(state.campaignStep - 1));
 $("campaignContinueBtn").addEventListener("click", async () => {
@@ -1412,12 +1562,14 @@ $("campaignPreviewBtn").addEventListener("click", () => {
 document.querySelectorAll("[data-workflow-step]").forEach((button) => {
   button.addEventListener("click", async () => {
     const targetStep = Number(button.dataset.workflowStep);
-    try {
-      if (targetStep > 1) await refreshPreview();
-      state.campaignPanelTouched = true;
-      showWorkflowStep(targetStep);
-    } catch (error) {
-      showToast(error, "error", "Preview failed");
+    state.campaignPanelTouched = true;
+    showWorkflowStep(targetStep);
+    if (targetStep > 1) {
+      try {
+        await refreshPreview();
+      } catch (error) {
+        showToast(error, "error", "Preview failed");
+      }
     }
   });
 });
@@ -1448,10 +1600,11 @@ loadAuth();
 setDefaultStartTime();
 initIcons();
 showPage((window.location.hash || "#dashboard").slice(1));
-loadCsvFiles();
+loadCsvFiles().catch((error) => showToast(error, "error", "Startup data load failed"));
 loadJobs();
 loadStatusSummary();
 loadSuppressions();
 loadTemplates();
 renderAttachments();
+renderVariableChips();
 setInterval(async () => { await loadJobs(); await loadStatusSummary(); }, 15000);

@@ -36,6 +36,19 @@ from app.main import (
 
 
 class MainTests(unittest.TestCase):
+    SAMPLE_CONTACTS_CSV = (
+        "first_name,last_name,email,phone,city,state,age,gender\n"
+        "Jamie,Chen,jamie.chen@example.com,555-0100,Austin,TX,32,F\n"
+        "Alex,Kim,alex.kim@example.com,555-0101,Austin,TX,33,M\n"
+        "Pat,Lee,pat.lee@example.com,555-0102,Austin,TX,34,F\n"
+        "Sam,Roy,sam.roy@example.com,555-0103,Austin,TX,35,M\n"
+    )
+
+    def write_contacts_csv(self, tmp: str) -> list[dict]:
+        csv_path = Path(tmp) / "test_contacts.csv"
+        csv_path.write_text(self.SAMPLE_CONTACTS_CSV, encoding="utf-8")
+        return [{"name": "test_contacts.csv", "path": str(csv_path), "default": False}]
+
     def test_create_job_honors_send_limit(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "test.sqlite3"
@@ -54,13 +67,7 @@ class MainTests(unittest.TestCase):
                 max_failures=4,
             )
             with patch("app.main.available_csv_files") as available_csv_files:
-                available_csv_files.return_value = [
-                    {
-                        "name": "test_contacts.csv",
-                        "path": str(Path("test_contacts.csv").resolve()),
-                        "default": False,
-                    }
-                ]
+                available_csv_files.return_value = self.write_contacts_csv(tmp)
                 result = create_job(payload)
             self.assertEqual(result["queued"], 2)
             self.assertEqual(len(db.list_queue(result["job_id"])), 2)
@@ -85,13 +92,7 @@ class MainTests(unittest.TestCase):
                 gender_filter="all",
             )
             with patch("app.main.available_csv_files") as available_csv_files:
-                available_csv_files.return_value = [
-                    {
-                        "name": "test_contacts.csv",
-                        "path": str(Path("test_contacts.csv").resolve()),
-                        "default": False,
-                    }
-                ]
+                available_csv_files.return_value = self.write_contacts_csv(tmp)
                 result = create_job(payload)
             queued = db.list_queue(result["job_id"])
             self.assertEqual(result["queued"], 2)
@@ -114,13 +115,7 @@ class MainTests(unittest.TestCase):
                 gender_filter="all",
             )
             with patch("app.main.available_csv_files") as available_csv_files, patch("app.main.available_attachments") as available_attachments:
-                available_csv_files.return_value = [
-                    {
-                        "name": "test_contacts.csv",
-                        "path": str(Path("test_contacts.csv").resolve()),
-                        "default": False,
-                    }
-                ]
+                available_csv_files.return_value = self.write_contacts_csv(tmp)
                 available_attachments.return_value = [
                     {
                         "id": "uploaded_attachments/overview.pdf",
@@ -240,13 +235,7 @@ class MainTests(unittest.TestCase):
                 body="Hello {{first_name}}",
             )
             with patch("app.main.available_csv_files") as available_csv_files:
-                available_csv_files.return_value = [
-                    {
-                        "name": "test_contacts.csv",
-                        "path": str(Path("test_contacts.csv").resolve()),
-                        "default": False,
-                    }
-                ]
+                available_csv_files.return_value = self.write_contacts_csv(tmp)
                 result = build_preview(payload)
 
             row = next(row for row in result["rows"] if row["email_norm"] == "jamie.chen@example.com")

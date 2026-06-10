@@ -82,6 +82,28 @@ class DbTests(unittest.TestCase):
 
             self.assertTrue(queue_item["unsubscribe_token"])
 
+    def test_delete_job_removes_job_and_queue_items(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+            item = {
+                "row_index": 2,
+                "email": "Person@Example.com",
+                "email_norm": "person@example.com",
+                "first_name": "Person",
+                "last_name": "Example",
+                "subject": "Hi",
+                "body": "Hello",
+                "row_data": {"email": "Person@Example.com"},
+            }
+            job_id = db.create_job('Test Campaign', [item], 10, 3, 17, 3, True, "09:00", "17:00", "America/Chicago", False, "Text")
+
+            self.assertTrue(db.delete_job(job_id))
+            self.assertEqual(db.list_jobs(), [])
+            self.assertEqual(db.list_queue(job_id), [])
+            self.assertFalse(db.delete_job(job_id))
+
     def test_save_template_creates_and_updates_template(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "test.sqlite3"
@@ -96,6 +118,32 @@ class DbTests(unittest.TestCase):
             self.assertEqual(updated["name"], "Outreach V2")
             self.assertEqual(updated["body"], "Updated")
             self.assertEqual(len(templates), 1)
+
+    def test_delete_template_removes_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+
+            created = db.save_template("Temp", "Subject", "Body")
+            self.assertTrue(db.delete_template(created["id"]))
+            self.assertEqual(db.list_templates(), [])
+            self.assertFalse(db.delete_template(created["id"]))
+
+    def test_delete_templates_by_name_prefix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+
+            db.save_template("Playwright Template 1", "S", "B")
+            db.save_template("Playwright Template 2", "S", "B")
+            db.save_template("Real Template", "S", "B")
+            removed = db.delete_templates_by_name_prefix("Playwright Template")
+            names = [row["name"] for row in db.list_templates()]
+
+            self.assertEqual(removed, 2)
+            self.assertEqual(names, ["Real Template"])
 
     def test_email_status_summary_counts_queue_states(self):
         with tempfile.TemporaryDirectory() as tmp:

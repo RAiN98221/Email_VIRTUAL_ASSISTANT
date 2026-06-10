@@ -236,6 +236,21 @@ def save_template(
         return dict(row)
 
 
+def delete_template(template_id: str) -> bool:
+    with connect() as conn:
+        cursor = conn.execute("DELETE FROM email_templates WHERE id = ?", (template_id,))
+        return cursor.rowcount > 0
+
+
+def delete_templates_by_name_prefix(prefix: str) -> int:
+    with connect() as conn:
+        cursor = conn.execute(
+            "DELETE FROM email_templates WHERE name LIKE ?",
+            (f"{prefix}%",),
+        )
+        return cursor.rowcount
+
+
 def suppressed_emails() -> dict[str, dict[str, Any]]:
     with connect() as conn:
         return {
@@ -483,6 +498,12 @@ def list_queue(job_id: str | None = None) -> list[dict[str, Any]]:
     query += " ORDER BY id ASC"
     with connect() as conn:
         return [dict(row) for row in conn.execute(query, params)]
+
+
+def delete_job(job_id: str) -> bool:
+    with connect() as conn:
+        cursor = conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        return cursor.rowcount > 0
 
 
 def set_job_status(job_id: str, status: str, pause_reason: str | None = None) -> None:

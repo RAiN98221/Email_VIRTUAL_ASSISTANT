@@ -272,7 +272,14 @@ test.describe("CSV Email Assistant UI", () => {
     await expect(page.getByLabel("Choose Files")).toBeVisible();
     await page.locator("#saveTemplateBtn").click();
     await expect(page.locator(".toast.success")).toContainText("Template saved");
-    await expect(page.locator("#templateList")).toContainText(templateName);
+    await expect(page.locator("#sideTemplateList")).toContainText(templateName);
+
+    await page.locator("#deleteTemplateBtn").click();
+    await expect(page.locator("#confirmModal")).toBeVisible();
+    await page.locator("#confirmModalConfirmBtn").click();
+    await expect(page.locator("#confirmModal")).toBeHidden();
+    await expect(page.locator(".toast.success")).toContainText("Template deleted");
+    await expect(page.locator("#sideTemplateList")).not.toContainText(templateName);
   });
 
   test("Gmail sync shows starting, pending, and finished toast states", async ({ page }) => {

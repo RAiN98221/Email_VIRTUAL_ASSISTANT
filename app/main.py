@@ -163,6 +163,13 @@ def save_template(payload: TemplateRequest) -> dict:
     }
 
 
+@app.delete("/api/templates/{template_id}")
+def delete_template(template_id: str) -> dict:
+    if not db.delete_template(template_id):
+        raise HTTPException(status_code=404, detail="Template not found")
+    return {"deleted": True, "id": template_id}
+
+
 def csv_file_id(path: Path) -> str:
     return path.relative_to(ROOT_DIR).as_posix()
 
@@ -618,6 +625,15 @@ def resume_job(job_id: str) -> dict:
 def cancel_job(job_id: str) -> dict:
     db.set_job_status(job_id, "cancelled")
     return {"ok": True}
+
+
+@app.delete("/api/jobs/{job_id}")
+def delete_job(job_id: str) -> dict:
+    # Stop any pending sends before removing; queue items cascade with the job.
+    db.set_job_status(job_id, "cancelled")
+    if not db.delete_job(job_id):
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    return {"deleted": True, "id": job_id}
 
 
 @app.get("/api/history")

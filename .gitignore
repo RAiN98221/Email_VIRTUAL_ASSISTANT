@@ -3,6 +3,7 @@ __pycache__/
 *.log
 .gitrepo/
 .vscode/
+.cursor/
 .pytest_cache/
 .venv/
 venv/
@@ -13,3 +14,5 @@ uploaded_csv/
 node_modules/
 playwright-report/
 test-results/
+.playwright-mcp/
+ui-inspection.png
