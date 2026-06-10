@@ -1498,7 +1498,45 @@ $("contactsNextPage").addEventListener("click", () => {
   renderPreviewTable();
 });
 $("refreshSuppressionsBtn").addEventListener("click", loadSuppressions);
-$("sendTestBtn").addEventListener("click", () => showToast("Use /api/send-test for controlled live-send verification.", "info", "Test email"));
+$("testRecipient").value = localStorage.getItem("testRecipient") || "";
+$("sendTestBtn").addEventListener("click", async () => {
+  const toEmail = $("testRecipient").value.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(toEmail)) {
+    showToast("Enter a valid recipient email address first.", "warning", "Test email");
+    $("testRecipient").focus();
+    return;
+  }
+  localStorage.setItem("testRecipient", toEmail);
+  const sample = sendableRows()[0] || state.preview?.rows?.[0] || { row_data: {} };
+  const button = $("sendTestBtn");
+  const originalHtml = button.innerHTML;
+  button.disabled = true;
+  button.textContent = "Sending...";
+  try {
+    const result = await api("/api/send-test", {
+      method: "POST",
+      body: JSON.stringify({
+        to_email: toEmail,
+        subject: renderTemplate($("subject").value, sample.row_data),
+        body: renderTemplate($("body").value, sample.row_data),
+      }),
+    });
+    const verified = result.result?.verification?.status === "sent_mail_found";
+    showToast(
+      verified
+        ? `Sent to ${toEmail} and verified in Gmail Sent Mail.`
+        : `Sent to ${toEmail}. ${result.result?.verification?.detail || ""}`,
+      "success",
+      "Test email sent",
+    );
+  } catch (error) {
+    showToast(error, "error", "Test send failed");
+  } finally {
+    button.disabled = false;
+    button.innerHTML = originalHtml;
+    initIcons(button);
+  }
+});
 $("newTemplateBtn").addEventListener("click", () => {
   applyTemplate({ id: null, name: "Untitled Template", subject: "Hi {{first_name}},", body: "Hi {{first_name}},\n\n" });
   showCardPanel("templates", "templates-editor");

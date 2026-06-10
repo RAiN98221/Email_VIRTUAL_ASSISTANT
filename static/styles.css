@@ -1150,6 +1150,26 @@ button.secondary.danger:hover {
   background: var(--preview-bg);
 }
 
+.test-send-row {
+  display: flex;
+  gap: 8px;
+}
+
+.test-send-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.test-send-row button {
+  white-space: nowrap;
+}
+
+.test-send-hint {
+  margin-top: -8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .reply-layout {
   display: grid;
   grid-template-columns: minmax(390px, 430px) minmax(0, 1fr);
