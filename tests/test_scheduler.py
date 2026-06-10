@@ -14,8 +14,6 @@ from app.scheduler import (
     next_scheduled_at,
     process_due_items,
     smtp_failure_suppression_reason,
-    unsubscribe_headers,
-    with_unsubscribe_footer,
 )
 
 
@@ -100,16 +98,6 @@ class SchedulerTests(unittest.TestCase):
 
             graph.send_mail.assert_not_called()
             self.assertEqual(db.list_queue(job_id)[1]["status"], "pending")
-
-    def test_unsubscribe_footer_and_headers(self):
-        url = "http://127.0.0.1:8000/unsubscribe/token"
-
-        body = with_unsubscribe_footer("Hello", "Text", url)
-        headers = unsubscribe_headers(url)
-
-        self.assertIn(url, body)
-        self.assertEqual(headers["List-Unsubscribe"], f"<{url}>")
-        self.assertEqual(headers["List-Unsubscribe-Post"], "List-Unsubscribe=One-Click")
 
     def test_hard_smtp_failure_classifies_as_bounced(self):
         exc = smtplib.SMTPRecipientsRefused(

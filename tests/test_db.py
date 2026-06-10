@@ -62,26 +62,6 @@ class DbTests(unittest.TestCase):
             self.assertEqual(job["max_failures"], 5)
             self.assertEqual(job["auto_pause_on_failure"], 1)
 
-    def test_create_job_adds_unsubscribe_token(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            db_path = Path(tmp) / "test.sqlite3"
-            db.init_db(db_path)
-            db.configure_database(db_path)
-            item = {
-                "row_index": 2,
-                "email": "Person@Example.com",
-                "email_norm": "person@example.com",
-                "first_name": "Person",
-                "last_name": "Example",
-                "subject": "Hi",
-                "body": "Hello",
-                "row_data": {"email": "Person@Example.com"},
-            }
-            job_id = db.create_job('Test Campaign', [item], 10, 3, 17, 3, True, "09:00", "17:00", "America/Chicago", False, "Text")
-            queue_item = db.list_queue(job_id)[0]
-
-            self.assertTrue(queue_item["unsubscribe_token"])
-
     def test_delete_job_removes_job_and_queue_items(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "test.sqlite3"
@@ -255,7 +235,7 @@ class DbTests(unittest.TestCase):
             self.assertEqual(counts["received"], 1)
             self.assertEqual(counts["replied"], 1)
 
-    def test_suppress_by_unsubscribe_token_records_suppression(self):
+    def test_set_job_status_tracks_pause_reason(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "test.sqlite3"
             db.init_db(db_path)
@@ -279,14 +259,6 @@ class DbTests(unittest.TestCase):
 
             self.assertEqual(paused["pause_reason"], "Too many failures.")
             self.assertIsNone(running["pause_reason"])
-            token = db.list_queue(job_id)[0]["unsubscribe_token"]
-
-            unsubscribed = db.suppress_by_unsubscribe_token(token)
-            suppressions = db.suppressed_emails()
-
-            self.assertEqual(unsubscribed["email_norm"], "person@example.com")
-            self.assertEqual(suppressions["person@example.com"]["reason"], "unsubscribed")
-            self.assertEqual(suppressions["person@example.com"]["source"], "unsubscribe_link")
 
     def test_unsuppress_email_removes_suppression(self):
         with tempfile.TemporaryDirectory() as tmp:

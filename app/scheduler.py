@@ -5,7 +5,6 @@ import json
 import random
 import smtplib
 from datetime import datetime, time, timedelta, timezone
-from html import escape
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -47,33 +46,6 @@ def next_scheduled_at(after_utc: datetime, interval_minutes: int, jitter_minutes
     jitter = random.randint(-jitter_minutes, jitter_minutes) if jitter_minutes > 0 else 0
     delay_minutes = max(1, interval_minutes + jitter)
     return (after_utc + timedelta(minutes=delay_minutes)).isoformat()
-
-
-def unsubscribe_url(token: str | None) -> str | None:
-    if not token:
-        return None
-    return f"{settings.app_base_url}/unsubscribe/{token}"
-
-
-def with_unsubscribe_footer(body: str, content_type: str, url: str | None) -> str:
-    if not url:
-        return body
-    if content_type.lower() == "html":
-        return (
-            f"{body}\n"
-            f'<p style="font-size:12px;color:#666">To stop future emails, '
-            f'<a href="{escape(url, quote=True)}">unsubscribe here</a>.</p>'
-        )
-    return f"{body}\n\nTo stop future emails, unsubscribe here: {url}"
-
-
-def unsubscribe_headers(url: str | None) -> dict[str, str]:
-    if not url:
-        return {}
-    return {
-        "List-Unsubscribe": f"<{url}>",
-        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-    }
 
 
 def job_attachment_paths(job) -> list[Path]:
@@ -222,13 +194,11 @@ def process_due_items(graph) -> None:
 
     try:
         logger.info("queue_send_start job_id=%s item_id=%s to=%s", job["id"], item["id"], item["email"])
-        unsubscribe = unsubscribe_url(item["unsubscribe_token"])
         send_result = graph.send_mail(
             to_email=item["email"],
             subject=item["subject"],
-            body=with_unsubscribe_footer(item["body"], job["content_type"], unsubscribe),
+            body=item["body"],
             content_type=job["content_type"],
-            extra_headers=unsubscribe_headers(unsubscribe),
             attachments=job_attachment_paths(job),
         )
         db.mark_sent(

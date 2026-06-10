@@ -43,11 +43,11 @@ class GraphTests(unittest.TestCase):
                 "person@example.com",
                 "Subject",
                 "Body",
-                extra_headers={"List-Unsubscribe": "<http://example.com/unsubscribe/token>"},
+                extra_headers={"X-Campaign-Id": "test-campaign"},
             )
 
         message = smtp.send_message.call_args.args[0]
-        self.assertEqual(message["List-Unsubscribe"], "<http://example.com/unsubscribe/token>")
+        self.assertEqual(message["X-Campaign-Id"], "test-campaign")
         self.assertIsNotNone(message["Date"])
         self.assertIsNotNone(message["Reply-To"])
 

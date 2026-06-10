@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import secrets
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -98,8 +97,7 @@ def init_db(path: Path | None = None) -> None:
                 sent_at TEXT,
                 attempt_count INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                unsubscribe_token TEXT
+                updated_at TEXT NOT NULL
             );
 
             CREATE INDEX IF NOT EXISTS idx_queue_status_schedule
@@ -147,19 +145,11 @@ def init_db(path: Path | None = None) -> None:
             "verification_status": "ALTER TABLE queue_items ADD COLUMN verification_status TEXT",
             "verification_detail": "ALTER TABLE queue_items ADD COLUMN verification_detail TEXT",
             "verified_at": "ALTER TABLE queue_items ADD COLUMN verified_at TEXT",
-            "unsubscribe_token": "ALTER TABLE queue_items ADD COLUMN unsubscribe_token TEXT",
             "template_name": "ALTER TABLE queue_items ADD COLUMN template_name TEXT",
         }
         for column, statement in queue_migrations.items():
             if column not in existing_queue_columns:
                 conn.execute(statement)
-        conn.execute(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_queue_unsubscribe_token
-                ON queue_items(unsubscribe_token)
-                WHERE unsubscribe_token IS NOT NULL
-            """
-        )
 
         existing_job_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()
@@ -307,25 +297,6 @@ def unsuppress_email(email_norm: str) -> bool:
         return cursor.rowcount > 0
 
 
-def suppress_by_unsubscribe_token(token: str) -> dict[str, Any] | None:
-    with connect() as conn:
-        item = conn.execute(
-            "SELECT * FROM queue_items WHERE unsubscribe_token = ?",
-            (token,),
-        ).fetchone()
-    if not item:
-        return None
-    item_dict = dict(item)
-    suppress_email(
-        item_dict["email"],
-        item_dict["email_norm"],
-        "unsubscribed",
-        "unsubscribe_link",
-        f"Unsubscribed from job {item_dict['job_id']}",
-    )
-    return item_dict
-
-
 def create_job(
     campaign_name: str,
     items: list[dict[str, Any]],
@@ -378,8 +349,8 @@ def create_job(
                 INSERT INTO queue_items (
                     job_id, row_index, email, email_norm, first_name, last_name,
                     subject, body, template_name, row_data_json, status, scheduled_at, created_at,
-                    updated_at, unsubscribe_token
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
                 """,
                 (
                     job_id,
@@ -395,7 +366,6 @@ def create_job(
                     now,
                     now,
                     now,
-                    secrets.token_urlsafe(24),
                 ),
             )
     return job_id

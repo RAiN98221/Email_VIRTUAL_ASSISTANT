@@ -39,7 +39,6 @@ The app keeps a local do-not-email list in SQLite. Suppressed contacts are marke
 
 Automatic sources:
 
-- Unsubscribe links: queued emails include an unsubscribe footer plus `List-Unsubscribe` headers. `APP_BASE_URL` controls the link base URL.
 - Hard SMTP failures: clear 5xx recipient failures are suppressed as `bounced` or `blocked`.
 
 Suppression state stays in `email_assistant.sqlite3`; source CSV files are not modified. View the current list with `GET /api/suppressions` or the Suppressed section in the app.
@@ -61,7 +60,7 @@ Invoke-RestMethod http://localhost:8000/api/send-test `
 
 - The original CSV is not modified.
 - Successful sends and Sent Mail verification results are recorded in `email_assistant.sqlite3`.
-- Unsubscribes and hard recipient failures are recorded as suppressed contacts in `email_assistant.sqlite3`.
+- Hard recipient failures are recorded as suppressed contacts in `email_assistant.sqlite3`.
 - Repeated send failures can auto-pause a job before the app continues through the remaining queue.
 - The queue survives restarts and the scheduler resumes pending jobs when the app starts.
 - Emails are sent one at a time and the next pending item is delayed by the configured interval.

@@ -40,7 +40,6 @@ class Settings:
     reply_poll_enabled: bool = os.getenv("REPLY_POLL_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
     reply_poll_seconds: int = int(os.getenv("REPLY_POLL_SECONDS", "60"))
     reply_poll_limit: int = int(os.getenv("REPLY_POLL_LIMIT", "15"))
-    app_base_url: str = os.getenv("APP_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
     database_path: Path = ROOT_DIR / os.getenv("APP_DATABASE_PATH", "email_assistant.sqlite3")
     default_csv_path: Path = ROOT_DIR / os.getenv(
         "DEFAULT_CSV_PATH", "filtered_contacts_under35_male_FIXED.csv"

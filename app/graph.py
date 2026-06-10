@@ -112,10 +112,6 @@ class GmailSmtpClient:
                 "host": settings.imap_host,
                 "timeout_seconds": settings.verify_sent_timeout_seconds,
             },
-            "deliverability": {
-                "app_base_url": settings.app_base_url,
-                "public_unsubscribe_links": not settings.app_base_url.startswith(("http://127.0.0.1", "http://localhost")),
-            },
         }
 
     def send_mail(

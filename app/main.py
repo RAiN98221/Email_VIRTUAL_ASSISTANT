@@ -687,25 +687,3 @@ def delete_suppression(email: str) -> dict:
     if not removed:
         raise HTTPException(status_code=404, detail="Suppressed contact not found.")
     return {"ok": True, "email_norm": email_norm}
-
-
-@app.get("/unsubscribe/{token}", response_class=HTMLResponse)
-def unsubscribe(token: str) -> HTMLResponse:
-    item = db.suppress_by_unsubscribe_token(token)
-    if not item:
-        return HTMLResponse(
-            "<h1>Unsubscribe link not found</h1><p>This link may be expired or invalid.</p>",
-            status_code=404,
-        )
-    return HTMLResponse(
-        "<h1>You are unsubscribed</h1>"
-        "<p>This email address has been added to the local do-not-email list.</p>"
-    )
-
-
-@app.post("/unsubscribe/{token}")
-def unsubscribe_post(token: str) -> dict:
-    item = db.suppress_by_unsubscribe_token(token)
-    if not item:
-        raise HTTPException(status_code=404, detail="Unsubscribe link not found.")
-    return {"ok": True, "email": item["email"], "reason": "unsubscribed"}

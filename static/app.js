@@ -219,9 +219,6 @@ function notificationItems() {
   if (!state.auth?.configured) {
     items.push({ tone: "warn", title: "Gmail is not configured", detail: "Set SMTP/Gmail credentials before sending.", target: "settings" });
   }
-  if (state.auth?.configured && state.auth?.deliverability && !state.auth.deliverability.public_unsubscribe_links) {
-    items.push({ tone: "warn", title: "Unsubscribe links are local", detail: "Set APP_BASE_URL to a public HTTPS URL before real campaigns.", target: "settings" });
-  }
   if (failed) {
     items.push({ tone: "bad", title: `${failed} failed email${failed === 1 ? "" : "s"}`, detail: "Review campaign activity for delivery errors.", target: "campaigns" });
   }
@@ -662,15 +659,15 @@ function replyMessageFor(contact) {
   if (contact?.body) return readableReplyBody(contact.body);
   const reason = contact?.reason || "reply";
   if (reason === "interested" || reason === "positive") {
-    return `Hi Sujanesh,\n\nThanks for reaching out. I'm interested in learning more about the collaboration.\n\nRegards,\n${replyDisplayName(contact.email).split(" ")[0]}`;
+    return `Hi there,\n\nThanks for reaching out. I'm interested in learning more about the collaboration.\n\nRegards,\n${replyDisplayName(contact.email).split(" ")[0]}`;
   }
   if (reason === "follow_up") {
-    return `Hi Sujanesh,\n\nI'm currently exploring new opportunities. Please send a few more details and we can find a time to talk.\n\nThanks,\n${replyDisplayName(contact.email).split(" ")[0]}`;
+    return `Hi there,\n\nI'm currently exploring new opportunities. Please send a few more details and we can find a time to talk.\n\nThanks,\n${replyDisplayName(contact.email).split(" ")[0]}`;
   }
   if (reason === "later") {
-    return `Hi Sujanesh,\n\nThis sounds interesting, but the timing is not ideal right now. Please follow up later.\n\nBest,\n${replyDisplayName(contact.email).split(" ")[0]}`;
+    return `Hi there,\n\nThis sounds interesting, but the timing is not ideal right now. Please follow up later.\n\nBest,\n${replyDisplayName(contact.email).split(" ")[0]}`;
   }
-  return `Hi Sujanesh,\n\nThanks for reaching out. I had a question about the opportunity and the expected collaboration details.\n\nRegards,\n${replyDisplayName(contact.email).split(" ")[0]}`;
+  return `Hi there,\n\nThanks for reaching out. I had a question about the opportunity and the expected collaboration details.\n\nRegards,\n${replyDisplayName(contact.email).split(" ")[0]}`;
 }
 
 function readableReplyBody(value) {
@@ -728,7 +725,7 @@ function renderSelectedReply(replies = filteredReplies()) {
   if (!contact) {
     $("replySender").textContent = "Gmail reply sync";
     $("replyMeta").textContent = "No Gmail inbox polling is connected yet.";
-    $("replyMessage").textContent = "Connect Gmail reply polling to load actual inbound replies here. Until then, suppressions and unsubscribe events remain tracked locally.";
+    $("replyMessage").textContent = "Connect Gmail reply polling to load actual inbound replies here. Until then, suppressions remain tracked locally.";
     $("replyDraft").value = "";
     $("starReplyBtn").classList.remove("active");
     $("archiveReplyBtn").classList.remove("active");

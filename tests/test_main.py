@@ -30,7 +30,6 @@ from app.main import (
     send_test,
     sync_replies,
     upload_attachments,
-    unsubscribe_post,
     upload_csv_file,
 )
 
@@ -432,29 +431,6 @@ class MainTests(unittest.TestCase):
             self.assertEqual(rows["ada@example.com"]["first_name"], "Ada")
             self.assertTrue(rows["grace.hopper@gmail.com"]["sendable"])
             self.assertEqual(rows["grace.hopper@gmail.com"]["first_name"], "Grace")
-
-    def test_unsubscribe_post_records_suppression(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            db_path = Path(tmp) / "test.sqlite3"
-            db.init_db(db_path)
-            db.configure_database(db_path)
-            item = {
-                "row_index": 2,
-                "email": "Person@Example.com",
-                "email_norm": "person@example.com",
-                "first_name": "Person",
-                "last_name": "Example",
-                "subject": "Hi",
-                "body": "Hello",
-                "row_data": {"email": "Person@Example.com"},
-            }
-            job_id = db.create_job('Test Campaign', [item], 10, 0, 25, 3, True, "09:00", "17:00", "America/Chicago", False, "Text")
-            token = db.list_queue(job_id)[0]["unsubscribe_token"]
-
-            response = unsubscribe_post(token)
-
-            self.assertTrue(response["ok"])
-            self.assertEqual(db.suppressed_emails()["person@example.com"]["reason"], "unsubscribed")
 
     def test_create_and_delete_manual_suppression(self):
         with tempfile.TemporaryDirectory() as tmp:
