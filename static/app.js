@@ -10,6 +10,9 @@ const state = {
   theme: localStorage.getItem("theme") || "light",
   jobsPage: 1,
   jobsPageSize: 5,
+  jobsStatusFilter: "all",
+  jobsSearch: "",
+  replySearch: "",
   contactsPage: 1,
   contactsPageSize: 5,
   contactSortOrder: "fresh_first",
@@ -46,7 +49,7 @@ const ICONS = {
   mail: '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a2 2 0 0 1-2.06 0L2 7"/>',
   message: '<path d="M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 7.5A9 9 0 1 1 12 3Z"/>',
-  more: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 1 1-2.83-2.83l8.49-8.48"/>',
   pause: '<rect width="4" height="16" x="6" y="4"/><rect width="4" height="16" x="14" y="4"/>',
   play: '<polygon points="6 3 20 12 6 21 6 3"/>',
@@ -112,7 +115,7 @@ function payload() {
     manual_only: manualOnly,
     subject: fieldValue("subjectStep", "subject"),
     body: fieldValue("bodyStep", "body"),
-    template_ids: rotationActive() ? [...state.rotationTemplateIds] : [],
+    template_ids: rotationActive() ? rotationTemplates().map((template) => template.id) : [],
     content_type: "Text",
     override_contacted: $("overrideContacted").checked || fieldChecked("overrideContactedStep", "overrideContacted"),
     exclude_company_emails: fieldChecked("excludeCompanyEmailsStep", "excludeCompanyEmails"),
@@ -393,10 +396,6 @@ function showCardPanel(group, target) {
     button.classList.toggle("active", button.dataset.cardTarget === target);
   });
   if (group === "campaigns" && target === "campaigns-create") showWorkflowStep(1);
-}
-
-function hasRunningCampaign() {
-  return state.jobs.some((job) => job.status === "running");
 }
 
 function showDefaultCampaignPanel() {
@@ -697,12 +696,20 @@ function setReplyFlag(reply, flag, value) {
   localStorage.setItem("replyFlags", JSON.stringify(state.replyFlags));
 }
 
+function replyMatchesSearch(reply) {
+  const search = state.replySearch.trim().toLowerCase();
+  if (!search) return true;
+  return [reply.from_email, reply.subject, reply.body, reply.campaign_name]
+    .some((value) => String(value || "").toLowerCase().includes(search));
+}
+
 function filteredReplies() {
-  if (state.replyFilter === "unread") return state.replies.filter((reply) => !reply.responded_at && !replyFlag(reply, "archived"));
-  if (state.replyFilter === "replied") return state.replies.filter((reply) => Boolean(reply.responded_at));
-  if (state.replyFilter === "starred") return state.replies.filter((reply) => replyFlag(reply, "starred"));
-  if (state.replyFilter === "archived") return state.replies.filter((reply) => replyFlag(reply, "archived"));
-  return state.replies.filter((reply) => !replyFlag(reply, "archived"));
+  const replies = state.replies.filter(replyMatchesSearch);
+  if (state.replyFilter === "unread") return replies.filter((reply) => !reply.responded_at && !replyFlag(reply, "archived"));
+  if (state.replyFilter === "replied") return replies.filter((reply) => Boolean(reply.responded_at));
+  if (state.replyFilter === "starred") return replies.filter((reply) => replyFlag(reply, "starred"));
+  if (state.replyFilter === "archived") return replies.filter((reply) => replyFlag(reply, "archived"));
+  return replies.filter((reply) => !replyFlag(reply, "archived"));
 }
 
 function renderReplyFilters() {
@@ -991,13 +998,27 @@ async function loadJobs() {
   }
 }
 
+function filteredJobs() {
+  const search = state.jobsSearch.trim().toLowerCase();
+  return state.jobs.filter((job) => {
+    if (state.jobsStatusFilter !== "all" && job.status !== state.jobsStatusFilter) return false;
+    if (search && !String(job.campaign_name || job.id).toLowerCase().includes(search)) return false;
+    return true;
+  });
+}
+
+function jobReplyCount(jobId) {
+  return state.replies.filter((reply) => reply.job_id === jobId).length;
+}
+
 function renderJobsTable() {
-  const totalJobs = state.jobs.length;
+  const jobs = filteredJobs();
+  const totalJobs = jobs.length;
   const pageSize = state.jobsPageSize;
   const pageCount = Math.max(1, Math.ceil(totalJobs / pageSize));
   state.jobsPage = Math.min(Math.max(1, state.jobsPage), pageCount);
   const start = (state.jobsPage - 1) * pageSize;
-  const visibleJobs = state.jobs.slice(start, start + pageSize);
+  const visibleJobs = jobs.slice(start, start + pageSize);
   $("jobs").innerHTML = visibleJobs.length ? visibleJobs.map((job) => {
     const counts = job.counts || {};
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
@@ -1005,7 +1026,7 @@ function renderJobsTable() {
       <td>${escapeHtml(job.campaign_name || job.id)}</td>
       <td>${total}</td>
       <td>${counts.sent || 0}</td>
-      <td>0</td>
+      <td>${jobReplyCount(job.id)}</td>
       <td><span class="status ${escapeHtml(job.status)}">${escapeHtml(job.status)}</span></td>
       <td>${counts.pending ? "Scheduled" : "—"}</td>
       <td class="table-actions">
@@ -1016,11 +1037,12 @@ function renderJobsTable() {
         <button data-action="delete" data-id="${job.id}" data-name="${escapeHtml(job.campaign_name || job.id)}" title="Delete"><span data-icon="trash"></span></button>
       </td>
     </tr>`;
-  }).join("") : '<tr><td colspan="7">No campaigns yet.</td></tr>';
+  }).join("") : `<tr><td colspan="7">${state.jobsStatusFilter !== "all" || state.jobsSearch.trim() ? "No campaigns match the current filter." : "No campaigns yet."}</td></tr>`;
   initIcons($("jobs"));
+  const filtered = state.jobsStatusFilter !== "all" || state.jobsSearch.trim();
   $("jobsPageInfo").textContent = totalJobs
     ? `Showing ${start + 1}-${Math.min(start + pageSize, totalJobs)} of ${totalJobs} campaigns`
-    : "No campaigns";
+    : filtered ? "No campaigns match the current filter" : "No campaigns";
   $("jobsPageLabel").textContent = `${state.jobsPage} / ${pageCount}`;
   $("jobsPrevPage").disabled = state.jobsPage <= 1;
   $("jobsNextPage").disabled = state.jobsPage >= pageCount;
@@ -1062,6 +1084,21 @@ async function loadSuppressions() {
   </table>` : "<p>No suppressed contacts yet.</p>";
 }
 
+function renderReplyThreads() {
+  const visibleReplies = filteredReplies();
+  state.selectedReplyIndex = Math.min(state.selectedReplyIndex, Math.max(0, visibleReplies.length - 1));
+  renderReplyFilters();
+  const emptyMessage = state.replySearch.trim() ? "No replies match the search." : "No Gmail replies synced yet.";
+  $("replyThreads").innerHTML = visibleReplies.length ? visibleReplies.map((contact, index) => `<button class="reply-thread ${index === state.selectedReplyIndex ? "active" : ""}" type="button" data-reply-index="${index}">
+    <span class="avatar small">${escapeHtml((contact.email || "?").slice(0, 1).toUpperCase())}</span>
+    <div><strong>${escapeHtml(contact.email)}</strong><small>${replyFlag(contact, "starred") ? "Starred · " : ""}${escapeHtml(contact.subject || "No subject")} · ${escapeHtml(contact.campaign_name || "unmatched")}</small></div>
+    <time title="${escapeHtml(formatDate(contact.received_at))}">${escapeHtml(formatRelativeTime(contact.received_at))}</time>
+  </button>`).join("") : `<p class="empty-state">${emptyMessage}</p>`;
+  initIcons($("replyThreads"));
+  renderSelectedReply(visibleReplies);
+  renderNotifications();
+}
+
 async function loadReplies() {
   const params = new URLSearchParams();
   if ($("csvFile")?.value) params.set("csv_file", $("csvFile").value);
@@ -1071,17 +1108,8 @@ async function loadReplies() {
     email: reply.from_email,
     updated_at: reply.updated_at || reply.received_at,
   }));
-  const visibleReplies = filteredReplies();
-  state.selectedReplyIndex = Math.min(state.selectedReplyIndex, Math.max(0, visibleReplies.length - 1));
-  renderReplyFilters();
-  $("replyThreads").innerHTML = visibleReplies.length ? visibleReplies.map((contact, index) => `<button class="reply-thread ${index === state.selectedReplyIndex ? "active" : ""}" type="button" data-reply-index="${index}">
-    <span class="avatar small">${escapeHtml((contact.email || "?").slice(0, 1).toUpperCase())}</span>
-    <div><strong>${escapeHtml(contact.email)}</strong><small>${replyFlag(contact, "starred") ? "Starred · " : ""}${escapeHtml(contact.subject || "No subject")} · ${escapeHtml(contact.campaign_name || "unmatched")}</small></div>
-    <time title="${escapeHtml(formatDate(contact.received_at))}">${escapeHtml(formatRelativeTime(contact.received_at))}</time>
-  </button>`).join("") : '<p class="empty-state">No Gmail replies synced yet.</p>';
-  initIcons($("replyThreads"));
-  renderSelectedReply(visibleReplies);
-  renderNotifications();
+  renderReplyThreads();
+  renderJobsTable();
 }
 
 async function uploadAttachments() {
@@ -1478,6 +1506,26 @@ $("suppressions").addEventListener("click", async (event) => {
 });
 
 $("refreshJobsBtn").addEventListener("click", async () => { await loadJobs(); await loadStatusSummary(); });
+$("jobsStatusTabs").addEventListener("click", (event) => {
+  const tab = event.target.closest("button[data-jobs-filter]");
+  if (!tab) return;
+  state.jobsStatusFilter = tab.dataset.jobsFilter;
+  state.jobsPage = 1;
+  $("jobsStatusTabs").querySelectorAll("button").forEach((button) => {
+    button.classList.toggle("active", button === tab);
+  });
+  renderJobsTable();
+});
+$("jobsSearch").addEventListener("input", () => {
+  state.jobsSearch = $("jobsSearch").value;
+  state.jobsPage = 1;
+  renderJobsTable();
+});
+$("replySearch").addEventListener("input", () => {
+  state.replySearch = $("replySearch").value;
+  state.selectedReplyIndex = 0;
+  renderReplyThreads();
+});
 $("jobsPageSize").addEventListener("change", () => {
   state.jobsPageSize = Number($("jobsPageSize").value || 5);
   state.jobsPage = 1;

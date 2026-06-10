@@ -516,7 +516,7 @@ def preview(payload: PreviewRequest) -> dict:
 def create_job(payload: QueueRequest) -> dict:
     rotation = rotation_templates(payload)
     preview_data = build_preview(payload)
-    attachment_paths = selected_attachment_paths(payload.attachment_ids)
+    selected_attachment_paths(payload.attachment_ids)  # validates ids and size limits
     items = [row for row in preview_data["rows"] if row["sendable"]]
     if payload.selected_row_indexes is not None:
         selected = set(payload.selected_row_indexes)
@@ -653,11 +653,6 @@ def delete_job(job_id: str) -> dict:
     if not db.delete_job(job_id):
         raise HTTPException(status_code=404, detail="Campaign not found")
     return {"deleted": True, "id": job_id}
-
-
-@app.get("/api/history")
-def history() -> dict:
-    return {"contacts": db.contacted_history()}
 
 
 @app.get("/api/suppressions")

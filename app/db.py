@@ -234,15 +234,6 @@ def delete_template(template_id: str) -> bool:
         return cursor.rowcount > 0
 
 
-def delete_templates_by_name_prefix(prefix: str) -> int:
-    with connect() as conn:
-        cursor = conn.execute(
-            "DELETE FROM email_templates WHERE name LIKE ?",
-            (f"{prefix}%",),
-        )
-        return cursor.rowcount
-
-
 def suppressed_emails() -> dict[str, dict[str, Any]]:
     with connect() as conn:
         return {

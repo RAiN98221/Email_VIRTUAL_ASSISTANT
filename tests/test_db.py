@@ -110,21 +110,6 @@ class DbTests(unittest.TestCase):
             self.assertEqual(db.list_templates(), [])
             self.assertFalse(db.delete_template(created["id"]))
 
-    def test_delete_templates_by_name_prefix(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            db_path = Path(tmp) / "test.sqlite3"
-            db.init_db(db_path)
-            db.configure_database(db_path)
-
-            db.save_template("Playwright Template 1", "S", "B")
-            db.save_template("Playwright Template 2", "S", "B")
-            db.save_template("Real Template", "S", "B")
-            removed = db.delete_templates_by_name_prefix("Playwright Template")
-            names = [row["name"] for row in db.list_templates()]
-
-            self.assertEqual(removed, 2)
-            self.assertEqual(names, ["Real Template"])
-
     def test_migration_adds_template_rotation_columns(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "test.sqlite3"

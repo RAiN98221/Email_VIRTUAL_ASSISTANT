@@ -1052,8 +1052,7 @@ label {
 }
 
 .template-list,
-.reply-list,
-.settings-menu {
+.reply-list {
   display: grid;
   align-content: start;
   gap: 10px;
@@ -1073,8 +1072,7 @@ label {
 
 .library-list .template-item,
 .template-item,
-.reply-thread,
-.settings-menu button {
+.reply-thread {
   display: grid;
   gap: 4px;
   width: 100%;
@@ -1111,8 +1109,7 @@ label {
 
 .library-list .template-item.active,
 .template-item.active,
-.reply-thread.active,
-.settings-menu button.active {
+.reply-thread.active {
   background: var(--item-active-bg);
   border-color: var(--item-active-border);
   color: var(--item-active-text);
@@ -1315,16 +1312,19 @@ button.secondary.danger:hover {
   gap: 14px;
 }
 
-.settings-menu {
-  display: none !important;
-}
-
 .settings-gmail {
   padding: 10px 0;
 }
 
-.disconnect {
-  color: var(--red);
+.setting-note {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.check-row:has(input:disabled) {
+  color: var(--muted);
+  cursor: default;
 }
 
 .flat {

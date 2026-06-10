@@ -35,13 +35,13 @@
     <form class="login-card">
       <h2>Welcome back</h2>
       <p>Sign in to your account</p>
-      <button type="button" class="google-button">G Sign in with Google</button>
+      <button type="button" class="google-button" data-page-target="dashboard">G Sign in with Google</button>
       <div class="divider"><span>or</span></div>
       <label>Email address<input type="email" placeholder="you@example.com"></label>
       <label>Password<input type="password" value="password"></label>
-      <div class="login-options"><label class="check-row"><input type="checkbox"> Remember me</label><button type="button" class="link-button">Forgot password?</button></div>
+      <div class="login-options"><label class="check-row"><input type="checkbox"> Remember me</label></div>
       <button type="button" data-page-target="dashboard">Sign in</button>
-      <p>Don't have an account? <button type="button" class="link-button">Sign up</button></p>
+      <p>This local app uses the Gmail credentials from your .env file.</p>
     </form>
   </section>
 
@@ -85,7 +85,7 @@
           <div class="notification-wrap">
             <button id="notificationBtn" type="button" class="icon-button" aria-label="Notifications" aria-expanded="false" aria-controls="notificationPanel"><span data-icon="bell"></span><b id="notificationBadge" class="notification-badge hidden">0</b></button>
             <div id="notificationPanel" class="notification-panel" hidden>
-              <div class="notification-head"><strong>Notifications</strong><button id="notificationCloseBtn" type="button" class="icon-button" aria-label="Close notifications"><span data-icon="more"></span></button></div>
+              <div class="notification-head"><strong>Notifications</strong><button id="notificationCloseBtn" type="button" class="icon-button" aria-label="Close notifications"><span data-icon="x"></span></button></div>
               <div id="notificationList" class="notification-list"></div>
             </div>
           </div>
@@ -124,7 +124,7 @@
         <button type="button" data-card-tab="campaigns" data-card-target="campaigns-review">Review Contacts</button>
       </nav>
       <section class="panel card-panel active-card" data-card-panel="campaigns" data-card-id="campaigns-activity">
-        <div class="section-title"><div class="tabs"><button class="active" type="button">All</button><button type="button">Running</button><button type="button">Paused</button><button type="button">Completed</button><button type="button">Cancelled</button></div><div class="toolbar-group"><input class="search-input" placeholder="Search campaigns..."><button id="refreshJobsBtn" type="button" class="secondary">Refresh</button></div></div>
+        <div class="section-title"><div id="jobsStatusTabs" class="tabs"><button class="active" type="button" data-jobs-filter="all">All</button><button type="button" data-jobs-filter="running">Running</button><button type="button" data-jobs-filter="paused">Paused</button><button type="button" data-jobs-filter="completed">Completed</button><button type="button" data-jobs-filter="cancelled">Cancelled</button></div><div class="toolbar-group"><input id="jobsSearch" class="search-input" placeholder="Search campaigns..." aria-label="Search campaigns"><button id="refreshJobsBtn" type="button" class="secondary">Refresh</button></div></div>
         <div class="table-wrap"><table class="history-table"><thead><tr><th>Campaign Name</th><th>Recipients</th><th>Sent</th><th>Replies</th><th>Status</th><th>Next Send</th><th>Actions</th></tr></thead><tbody id="jobs"></tbody></table></div>
         <div class="table-pagination">
           <span id="jobsPageInfo">No campaigns</span>
@@ -307,14 +307,14 @@ Your Name</textarea></label><div class="attachment-card"><div><h3>Attachments</h
     </section>
 
     <section id="replies" class="page">
-      <header class="topbar"><div><h2>Replies</h2><p>Manage and respond to email replies</p></div><div class="top-actions"><input class="search-input" placeholder="Search replies..."><button id="syncRepliesBtn" type="button"><span data-icon="inbox"></span> Sync Gmail</button></div></header>
+      <header class="topbar"><div><h2>Replies</h2><p>Manage and respond to email replies</p></div><div class="top-actions"><input id="replySearch" class="search-input" placeholder="Search replies..." aria-label="Search replies"><button id="syncRepliesBtn" type="button"><span data-icon="inbox"></span> Sync Gmail</button></div></header>
       <nav class="card-nav" aria-label="Reply sections">
         <button class="active" type="button" data-card-tab="replies" data-card-target="replies-threads">Reply Threads</button>
         <button type="button" data-card-tab="replies" data-card-target="replies-conversation">Conversation & Reply</button>
       </nav>
       <div class="reply-layout">
         <aside class="panel reply-list card-panel active-card" data-card-panel="replies" data-card-id="replies-threads"><div id="replyFilters" class="tabs"><button class="active" type="button" data-reply-filter="all">All <span>0</span></button><button type="button" data-reply-filter="unread">Unread <span>0</span></button><button type="button" data-reply-filter="replied">Replied <span>0</span></button><button type="button" data-reply-filter="starred">Starred <span>0</span></button><button type="button" data-reply-filter="archived">Archived <span>0</span></button></div><div id="replyThreads" class="reply-thread-list"></div></aside>
-        <section class="panel reply-reader card-panel" data-card-panel="replies" data-card-id="replies-conversation"><div class="section-title"><div><h2 id="replySender">Gmail reply sync</h2><p id="replyMeta">No Gmail inbox polling is connected yet.</p></div><div><button id="starReplyBtn" class="icon-button" type="button" title="Star reply"><span data-icon="star"></span></button><button id="archiveReplyBtn" class="icon-button" type="button" title="Archive reply"><span data-icon="archive"></span></button><button class="icon-button" type="button"><span data-icon="more"></span></button></div></div><div id="replyMessage" class="reply-message">Connect Gmail reply polling to load actual inbound replies here. Until then, suppressions remain tracked locally.</div><div class="reply-compose"><div class="tabs"><button class="active">Reply</button><button>Note</button></div><textarea id="replyDraft" placeholder="Write your reply..."></textarea><div class="editor-footer"><div><button class="secondary"><span data-icon="paperclip"></span></button><button class="secondary"><span data-icon="link"></span></button></div><button id="sendReplyBtn" type="button"><span data-icon="send"></span> Send Reply</button></div></div></section>
+        <section class="panel reply-reader card-panel" data-card-panel="replies" data-card-id="replies-conversation"><div class="section-title"><div><h2 id="replySender">Gmail reply sync</h2><p id="replyMeta">No Gmail inbox polling is connected yet.</p></div><div><button id="starReplyBtn" class="icon-button" type="button" title="Star reply"><span data-icon="star"></span></button><button id="archiveReplyBtn" class="icon-button" type="button" title="Archive reply"><span data-icon="archive"></span></button></div></div><div id="replyMessage" class="reply-message">Connect Gmail reply polling to load actual inbound replies here. Until then, suppressions remain tracked locally.</div><div class="reply-compose"><textarea id="replyDraft" placeholder="Write your reply..."></textarea><div class="editor-footer"><span></span><button id="sendReplyBtn" type="button"><span data-icon="send"></span> Send Reply</button></div></div></section>
       </div>
     </section>
 
@@ -341,16 +341,15 @@ Your Name</textarea></label><div class="attachment-card"><div><h3>Attachments</h
         <button type="button" data-card-tab="settings" data-card-target="settings-advanced">Advanced</button>
       </nav>
       <div class="settings-layout">
-        <nav class="panel settings-menu"><button class="active">Sending Rules</button><button>Gmail Account</button><button>Safety & Limits</button><button>Notifications</button><button>Preferences</button><button>Integrations</button><button>Billing</button></nav>
         <section class="settings-grid">
           <div class="panel setting-box card-panel active-card" data-card-panel="settings" data-card-id="settings-sending"><h3>Sending Rules</h3><label>Send every<input id="interval" type="number" min="1" value="10"><span>minutes</span></label><label>Random delay<input id="intervalJitter" type="number" min="0" value="2"><span>minutes</span></label><label>Daily limit<input id="dailySendLimit" type="number" min="1" value="25"><span>emails</span></label><label>Failures before pause<input id="maxFailures" type="number" min="1" value="3"><span>failures</span></label><label>Queue limit<input id="sendLimit" type="number" min="1" placeholder="All"></label></div>
           <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-window"><h3>Time Window</h3><label>Start time<input id="businessStart" type="time" value="09:00"></label><label>End time<input id="businessEnd" type="time" value="17:00"></label><label>Timezone<input id="timezone" value="America/Chicago"></label></div>
           <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-audience"><h3>Audience Range</h3><label>Minimum age<input id="ageMin" type="number" min="0" max="120" value="18"><span>years</span></label><label>Maximum age<input id="ageMax" type="number" min="0" max="120" value="44"><span>years</span></label><p>CSV files can be imported without age data. Age filters are applied only to contacts that include an age value.</p></div>
-          <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-safety"><h3>Safety Options</h3><label class="check-row"><input id="autoPauseOnFailure" type="checkbox" checked> Auto-pause on failures</label><label class="check-row"><input id="excludeCompanyEmailsSetting" type="checkbox" checked> Exclude company emails</label><label class="check-row"><input type="checkbox" checked> Respect Gmail daily limits</label><label class="check-row"><input type="checkbox" checked> Skip invalid emails</label><label class="check-row"><input type="checkbox" checked> Remove duplicates</label></div>
-          <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-gmail"><h3>Gmail Account</h3><button class="gmail-card settings-gmail" type="button">Gmail status</button><button class="secondary disconnect" type="button">Disconnect</button></div>
-          <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-notifications"><h3>Notifications</h3><label class="check-row"><input type="checkbox" checked> Email me on failures</label><label class="check-row"><input type="checkbox" checked> Daily summary email</label><label class="check-row"><input type="checkbox"> Campaign completion alert</label></div>
+          <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-safety"><h3>Safety Options</h3><label class="check-row"><input id="autoPauseOnFailure" type="checkbox" checked> Auto-pause on failures</label><label class="check-row"><input id="excludeCompanyEmailsSetting" type="checkbox" checked> Exclude company emails</label><label class="check-row" title="Always enforced by the app"><input type="checkbox" checked disabled> Respect Gmail daily limits</label><label class="check-row" title="Always enforced by the app"><input type="checkbox" checked disabled> Skip invalid emails</label><label class="check-row" title="Always enforced by the app"><input type="checkbox" checked disabled> Remove duplicates</label><p class="setting-note">Grayed-out safeguards are always enforced and cannot be turned off.</p></div>
+          <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-gmail"><h3>Gmail Account</h3><button class="gmail-card settings-gmail" type="button" data-page-target="login">Gmail status</button><p class="setting-note">Credentials are read from the .env file. Edit .env and restart the app to change accounts.</p></div>
+          <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-notifications"><h3>Notifications</h3><label class="check-row" title="Not available yet"><input type="checkbox" disabled> Email me on failures</label><label class="check-row" title="Not available yet"><input type="checkbox" disabled> Daily summary email</label><label class="check-row" title="Not available yet"><input type="checkbox" disabled> Campaign completion alert</label><p class="setting-note">Email notifications are not available yet. The in-app bell shows failures and pending sends.</p></div>
           <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-appearance"><h3>Appearance</h3><p>Choose how the app looks on this device.</p><div class="theme-options" role="radiogroup" aria-label="Color theme"><label class="theme-option"><input type="radio" name="themePreference" value="light" checked><span class="theme-option-preview theme-preview-daylight" aria-hidden="true"></span><span><strong>Daylight</strong><small>Bright surfaces and soft contrast</small></span></label><label class="theme-option"><input type="radio" name="themePreference" value="dark"><span class="theme-option-preview theme-preview-dark" aria-hidden="true"></span><span><strong>Dark</strong><small>Dimmed backgrounds for low light</small></span></label></div></div>
-          <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-advanced"><h3>Advanced</h3><label>Max concurrent sends<input type="number" value="2"></label><label>Retry failed emails<input type="number" value="2"><span>times</span></label></div>
+          <div class="panel setting-box card-panel" data-card-panel="settings" data-card-id="settings-advanced"><h3>Advanced</h3><label title="Not configurable yet">Max concurrent sends<input type="number" value="1" disabled></label><label title="Not configurable yet">Retry failed emails<input type="number" value="0" disabled><span>times</span></label><p class="setting-note">Emails are sent one at a time without automatic retries. These controls are not configurable yet.</p></div>
         </section>
       </div>
     </section>

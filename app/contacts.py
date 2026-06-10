@@ -81,10 +81,6 @@ class Contact:
             "gender": self.gender,
         }
 
-    @property
-    def email_norm(self) -> str:
-        return normalize_email(self.email)
-
 
 def normalize_email(email: str) -> str:
     return (email or "").strip().lower()
