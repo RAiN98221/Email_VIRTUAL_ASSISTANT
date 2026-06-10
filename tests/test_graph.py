@@ -1,10 +1,31 @@
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from app.graph import GmailSmtpClient, SendVerification
+from app import db
+from app.graph import GmailSmtpClient, SendVerification, active_credentials
 
 
 class GraphTests(unittest.TestCase):
+    def test_active_credentials_prefers_active_account_over_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+
+            self.assertEqual(active_credentials().source, "env")
+
+            db.add_gmail_account("acct@gmail.com", "secret-app-pass", activate=True)
+            credentials = active_credentials()
+            self.assertEqual(credentials.source, "account")
+            self.assertEqual(credentials.from_email, "acct@gmail.com")
+            self.assertEqual(credentials.smtp_username, "acct@gmail.com")
+            self.assertEqual(credentials.smtp_password, "secret-app-pass")
+            self.assertEqual(credentials.imap_username, "acct@gmail.com")
+
+            db.deactivate_gmail_accounts()
+            self.assertEqual(active_credentials().source, "env")
     def test_send_mail_returns_message_id_and_verification(self):
         client = GmailSmtpClient()
         smtp = MagicMock()

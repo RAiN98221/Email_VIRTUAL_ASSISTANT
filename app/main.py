@@ -86,6 +86,13 @@ class TemplateRequest(BaseModel):
     body: str = Field(min_length=1)
 
 
+class GmailAccountRequest(BaseModel):
+    email: str = Field(min_length=3)
+    app_password: str = Field(min_length=8)
+    activate: bool = True
+    verify: bool = True
+
+
 app = FastAPI(title="CSV Email Assistant")
 app.mount("/static", StaticFiles(directory=ROOT_DIR / "static"), name="static")
 _stop_event: asyncio.Event | None = None
@@ -145,6 +152,67 @@ def send_test(payload: SendTestRequest) -> dict:
             "It does not prove the recipient inbox accepted or displayed the email."
         ),
     }
+
+
+def public_account(account: dict) -> dict:
+    return {
+        "id": account["id"],
+        "email": account["email"],
+        "is_active": bool(account["is_active"]),
+        "created_at": account["created_at"],
+    }
+
+
+@app.get("/api/accounts")
+def accounts() -> dict:
+    return {
+        "accounts": [public_account(account) for account in db.list_gmail_accounts()],
+        "env_fallback": {
+            "email": settings.from_email or settings.smtp_username or None,
+            "configured": bool(settings.smtp_username.strip() and settings.smtp_password.strip()),
+        },
+    }
+
+
+@app.post("/api/accounts")
+def add_account(payload: GmailAccountRequest) -> dict:
+    email = payload.email.strip().lower()
+    if not is_valid_email(email):
+        raise HTTPException(status_code=400, detail="Enter a valid Gmail address.")
+    if any(account["email"] == email for account in db.list_gmail_accounts()):
+        raise HTTPException(status_code=409, detail="That Gmail account is already added.")
+    app_password = payload.app_password.replace(" ", "")
+    if payload.verify:
+        try:
+            mail_client().verify_login(email, app_password)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Gmail rejected the credentials: {exc}. Use a Google App Password, not the regular account password.",
+            ) from exc
+    account = db.add_gmail_account(email, app_password, activate=payload.activate)
+    return {"account": public_account(account)}
+
+
+@app.post("/api/accounts/deactivate")
+def deactivate_accounts() -> dict:
+    db.deactivate_gmail_accounts()
+    return {"ok": True}
+
+
+@app.post("/api/accounts/{account_id}/activate")
+def activate_account(account_id: str) -> dict:
+    account = db.set_active_gmail_account(account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return {"account": public_account(account)}
+
+
+@app.delete("/api/accounts/{account_id}")
+def delete_account(account_id: str) -> dict:
+    if not db.delete_gmail_account(account_id):
+        raise HTTPException(status_code=404, detail="Account not found")
+    return {"deleted": True, "id": account_id}
 
 
 @app.get("/api/templates")

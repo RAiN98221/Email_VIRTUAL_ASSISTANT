@@ -13,6 +13,7 @@ const state = {
   jobsStatusFilter: "all",
   jobsSearch: "",
   replySearch: "",
+  accounts: [],
   contactsPage: 1,
   contactsPageSize: 5,
   contactSortOrder: "fresh_first",
@@ -438,6 +439,27 @@ async function loadAuth() {
     button.innerHTML = $("loginBtn").innerHTML;
   });
   renderNotifications();
+}
+
+async function loadAccounts() {
+  const data = await api("/api/accounts");
+  state.accounts = data.accounts;
+  const rows = data.accounts.map((account) => `<div class="account-row ${account.is_active ? "active" : ""}">
+    <div><strong>${escapeHtml(account.email)}</strong><small>${account.is_active ? "Active sending account" : "Saved"}</small></div>
+    <div class="account-actions">
+      ${account.is_active ? '<span class="account-badge">Active</span>' : `<button type="button" class="link-button" data-account-action="activate" data-account-id="${account.id}">Use</button>`}
+      <button type="button" class="icon-button" data-account-action="delete" data-account-id="${account.id}" data-account-email="${escapeHtml(account.email)}" title="Remove account"><span data-icon="trash"></span></button>
+    </div>
+  </div>`);
+  const activeAdded = data.accounts.some((account) => account.is_active);
+  if (data.env_fallback.configured) {
+    rows.push(`<div class="account-row ${activeAdded ? "" : "active"}">
+      <div><strong>${escapeHtml(data.env_fallback.email || "")}</strong><small>${activeAdded ? "From .env file" : "Active - from .env file"}</small></div>
+      <div class="account-actions">${activeAdded ? '<button type="button" class="link-button" data-account-action="use-env">Use</button>' : '<span class="account-badge">Active</span>'}</div>
+    </div>`);
+  }
+  $("accountList").innerHTML = rows.join("") || '<p class="empty-state">No Gmail accounts configured yet. Add one below.</p>';
+  initIcons($("accountList"));
 }
 
 async function loadCsvFiles() {
@@ -1506,6 +1528,54 @@ $("suppressions").addEventListener("click", async (event) => {
 });
 
 $("refreshJobsBtn").addEventListener("click", async () => { await loadJobs(); await loadStatusSummary(); });
+$("addAccountBtn").addEventListener("click", async () => {
+  const email = $("accountEmail").value.trim();
+  const password = $("accountPassword").value.trim();
+  if (!email || !password) return showToast("Enter the Gmail address and its App Password.", "warning");
+  const button = $("addAccountBtn");
+  button.disabled = true;
+  $("accountStatus").textContent = "Verifying credentials with Gmail...";
+  try {
+    await api("/api/accounts", { method: "POST", body: JSON.stringify({ email, app_password: password }) });
+    $("accountEmail").value = "";
+    $("accountPassword").value = "";
+    $("accountStatus").textContent = "";
+    await loadAccounts();
+    await loadAuth();
+    showToast(`${email} added and set as the active sending account.`, "success", "Account added");
+  } catch (error) {
+    $("accountStatus").textContent = "";
+    showToast(error, "error", "Could not add account");
+  } finally {
+    button.disabled = false;
+  }
+});
+$("accountList").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-account-action]");
+  if (!button) return;
+  try {
+    if (button.dataset.accountAction === "activate") {
+      await api(`/api/accounts/${button.dataset.accountId}/activate`, { method: "POST" });
+      showToast("Active sending account switched.", "success");
+    } else if (button.dataset.accountAction === "use-env") {
+      await api("/api/accounts/deactivate", { method: "POST" });
+      showToast("Switched back to the .env account.", "success");
+    } else if (button.dataset.accountAction === "delete") {
+      const confirmed = await confirmAction({
+        title: "Remove Gmail account?",
+        message: `"${button.dataset.accountEmail}" will be removed from this app. Emails already sent are not affected.`,
+        confirmLabel: "Remove Account",
+      });
+      if (!confirmed) return;
+      await api(`/api/accounts/${button.dataset.accountId}`, { method: "DELETE" });
+      showToast("Gmail account removed.", "success");
+    }
+    await loadAccounts();
+    await loadAuth();
+  } catch (error) {
+    showToast(error, "error", "Account update failed");
+  }
+});
 $("jobsStatusTabs").addEventListener("click", (event) => {
   const tab = event.target.closest("button[data-jobs-filter]");
   if (!tab) return;
@@ -1739,6 +1809,7 @@ document.addEventListener("keydown", (event) => {
 
 applyTheme(state.theme);
 loadAuth();
+loadAccounts().catch((error) => showToast(error, "error", "Accounts load failed"));
 setDefaultStartTime();
 initIcons();
 showPage((window.location.hash || "#dashboard").slice(1));

@@ -135,6 +135,15 @@ def init_db(path: Path | None = None) -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS gmail_accounts (
+                id TEXT PRIMARY KEY,
+                email TEXT NOT NULL UNIQUE,
+                app_password TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             """
         )
         existing_queue_columns = {
@@ -182,6 +191,59 @@ def init_db(path: Path | None = None) -> None:
         for column, statement in reply_migrations.items():
             if column not in existing_reply_columns:
                 conn.execute(statement)
+
+
+def list_gmail_accounts() -> list[dict[str, Any]]:
+    with connect() as conn:
+        return [
+            dict(row)
+            for row in conn.execute("SELECT * FROM gmail_accounts ORDER BY created_at")
+        ]
+
+
+def get_active_gmail_account() -> dict[str, Any] | None:
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM gmail_accounts WHERE is_active = 1").fetchone()
+        return dict(row) if row else None
+
+
+def add_gmail_account(email: str, app_password: str, activate: bool = False) -> dict[str, Any]:
+    now = utc_now()
+    account_id = str(uuid.uuid4())
+    with connect() as conn:
+        if activate:
+            conn.execute("UPDATE gmail_accounts SET is_active = 0, updated_at = ? WHERE is_active = 1", (now,))
+        conn.execute(
+            """
+            INSERT INTO gmail_accounts (id, email, app_password, is_active, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (account_id, email.strip().lower(), app_password, 1 if activate else 0, now, now),
+        )
+        row = conn.execute("SELECT * FROM gmail_accounts WHERE id = ?", (account_id,)).fetchone()
+        return dict(row)
+
+
+def set_active_gmail_account(account_id: str) -> dict[str, Any] | None:
+    now = utc_now()
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM gmail_accounts WHERE id = ?", (account_id,)).fetchone()
+        if not row:
+            return None
+        conn.execute("UPDATE gmail_accounts SET is_active = 0, updated_at = ? WHERE is_active = 1", (now,))
+        conn.execute("UPDATE gmail_accounts SET is_active = 1, updated_at = ? WHERE id = ?", (now, account_id))
+        return dict(conn.execute("SELECT * FROM gmail_accounts WHERE id = ?", (account_id,)).fetchone())
+
+
+def deactivate_gmail_accounts() -> None:
+    with connect() as conn:
+        conn.execute("UPDATE gmail_accounts SET is_active = 0, updated_at = ? WHERE is_active = 1", (utc_now(),))
+
+
+def delete_gmail_account(account_id: str) -> bool:
+    with connect() as conn:
+        cursor = conn.execute("DELETE FROM gmail_accounts WHERE id = ?", (account_id,))
+        return cursor.rowcount > 0
 
 
 def contacted_emails() -> set[str]:

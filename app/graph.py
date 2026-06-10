@@ -18,12 +18,48 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import db
 from .logging_config import get_logger
 from .settings import settings
 
 
 PLACEHOLDER_SMTP_VALUES = {"", "your-gmail-address@gmail.com", "your-google-app-password"}
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class MailCredentials:
+    from_email: str
+    smtp_username: str
+    smtp_password: str
+    imap_username: str
+    imap_password: str
+    source: str
+
+
+def active_credentials() -> MailCredentials:
+    """Active account added via the UI wins; otherwise fall back to .env values."""
+    try:
+        account = db.get_active_gmail_account()
+    except Exception:
+        account = None
+    if account:
+        return MailCredentials(
+            from_email=account["email"],
+            smtp_username=account["email"],
+            smtp_password=account["app_password"],
+            imap_username=account["email"],
+            imap_password=account["app_password"],
+            source="account",
+        )
+    return MailCredentials(
+        from_email=settings.from_email,
+        smtp_username=settings.smtp_username,
+        smtp_password=settings.smtp_password,
+        imap_username=settings.imap_username,
+        imap_password=settings.imap_password,
+        source="env",
+    )
 
 
 class MailNotConfigured(RuntimeError):
@@ -85,26 +121,30 @@ class GmailSmtpSsl(SmtpConnectMixin, smtplib.SMTP_SSL):
 
 class GmailSmtpClient:
     def is_configured(self) -> bool:
+        credentials = active_credentials()
         return (
             settings.smtp_host.strip() not in PLACEHOLDER_SMTP_VALUES
-            and settings.smtp_username.strip() not in PLACEHOLDER_SMTP_VALUES
-            and settings.smtp_password.strip() not in PLACEHOLDER_SMTP_VALUES
-            and settings.from_email.strip() not in PLACEHOLDER_SMTP_VALUES
+            and credentials.smtp_username.strip() not in PLACEHOLDER_SMTP_VALUES
+            and credentials.smtp_password.strip() not in PLACEHOLDER_SMTP_VALUES
+            and credentials.from_email.strip() not in PLACEHOLDER_SMTP_VALUES
         )
 
     def is_imap_configured(self) -> bool:
+        credentials = active_credentials()
         return (
             settings.imap_host.strip() not in PLACEHOLDER_SMTP_VALUES
-            and settings.imap_username.strip() not in PLACEHOLDER_SMTP_VALUES
-            and settings.imap_password.strip() not in PLACEHOLDER_SMTP_VALUES
+            and credentials.imap_username.strip() not in PLACEHOLDER_SMTP_VALUES
+            and credentials.imap_password.strip() not in PLACEHOLDER_SMTP_VALUES
         )
 
     def auth_status(self) -> dict[str, Any]:
+        credentials = active_credentials()
         return {
             "provider": "gmail",
             "configured": self.is_configured(),
             "authenticated": self.is_configured(),
-            "account": settings.from_email or settings.smtp_username or None,
+            "account": credentials.from_email or credentials.smtp_username or None,
+            "account_source": credentials.source,
             "connect_host": settings.smtp_connect_host or settings.smtp_host,
             "sent_mail_verification": {
                 "enabled": settings.verify_sent_mail,
@@ -113,6 +153,19 @@ class GmailSmtpClient:
                 "timeout_seconds": settings.verify_sent_timeout_seconds,
             },
         }
+
+    def verify_login(self, email: str, app_password: str) -> None:
+        """Raises on connection or authentication failure."""
+        if settings.smtp_port == 465:
+            smtp_context = GmailSmtpSsl(settings.smtp_host, settings.smtp_port, timeout=20)
+        else:
+            smtp_context = GmailSmtp(settings.smtp_host, settings.smtp_port, timeout=20)
+        with smtp_context as smtp:
+            smtp.ehlo()
+            if settings.smtp_port != 465:
+                smtp.starttls()
+                smtp.ehlo()
+            smtp.login(email, app_password)
 
     def send_mail(
         self,
@@ -124,17 +177,18 @@ class GmailSmtpClient:
         attachments: list[Path] | None = None,
     ) -> SendResult:
         if not self.is_configured():
-            raise MailNotConfigured("Set SMTP_USERNAME, SMTP_PASSWORD, and FROM_EMAIL in .env first.")
+            raise MailNotConfigured("Add a Gmail account in Settings or set SMTP_USERNAME, SMTP_PASSWORD, and FROM_EMAIL in .env first.")
 
-        message_id = make_msgid(domain=(settings.from_email.split("@")[-1] or "localhost"))
+        credentials = active_credentials()
+        message_id = make_msgid(domain=(credentials.from_email.split("@")[-1] or "localhost"))
         message = EmailMessage()
-        message["From"] = settings.from_email
+        message["From"] = credentials.from_email
         message["To"] = to_email
         message["Subject"] = subject
         message["Date"] = formatdate(localtime=True)
         message["Message-ID"] = message_id
-        if settings.from_email:
-            message["Reply-To"] = settings.from_email
+        if credentials.from_email:
+            message["Reply-To"] = credentials.from_email
         for header, value in (extra_headers or {}).items():
             message[header] = value
         if content_type.lower() == "html":
@@ -157,7 +211,7 @@ class GmailSmtpClient:
             settings.smtp_host,
             settings.smtp_connect_host or settings.smtp_host,
             settings.smtp_port,
-            settings.from_email,
+            credentials.from_email,
             to_email,
             content_type,
         )
@@ -173,8 +227,8 @@ class GmailSmtpClient:
                     smtp.starttls()
                     smtp.ehlo()
                     logger.info("smtp_tls_ready to=%s", to_email)
-                smtp.login(settings.smtp_username, settings.smtp_password)
-                logger.info("smtp_login_ok username=%s to=%s", settings.smtp_username, to_email)
+                smtp.login(credentials.smtp_username, credentials.smtp_password)
+                logger.info("smtp_login_ok username=%s to=%s", credentials.smtp_username, to_email)
                 smtp.send_message(message)
             logger.info("smtp_send_ok to=%s subject=%r", to_email, subject)
         except Exception:
@@ -211,8 +265,9 @@ class GmailSmtpClient:
         return SendVerification("sent_mail_not_found", last_error)
 
     def _find_message_in_sent_mail(self, message_id: str) -> str | None:
+        credentials = active_credentials()
         with imaplib.IMAP4_SSL(settings.imap_host, settings.imap_port, timeout=30) as imap:
-            imap.login(settings.imap_username, settings.imap_password)
+            imap.login(credentials.imap_username, credentials.imap_password)
             for mailbox in self._sent_mailboxes(imap):
                 status, _ = imap.select(mailbox, readonly=True)
                 if status != "OK":
@@ -226,8 +281,9 @@ class GmailSmtpClient:
     def fetch_inbound_replies(self, limit: int = 50) -> list[InboundReply]:
         if not self.is_imap_configured():
             raise MailNotConfigured("Set IMAP_USERNAME and IMAP_PASSWORD to poll Gmail replies.")
+        credentials = active_credentials()
         with imaplib.IMAP4_SSL(settings.imap_host, settings.imap_port, timeout=30) as imap:
-            imap.login(settings.imap_username, settings.imap_password)
+            imap.login(credentials.imap_username, credentials.imap_password)
             mailbox = self._select_inbox(imap)
             if not mailbox:
                 imap.logout()

@@ -5,6 +5,33 @@ from app import db
 
 
 class DbTests(unittest.TestCase):
+    def test_gmail_account_crud_and_active_switching(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+
+            first = db.add_gmail_account("First@Gmail.com", "app-password-1", activate=True)
+            second = db.add_gmail_account("second@gmail.com", "app-password-2", activate=False)
+
+            self.assertEqual(first["email"], "first@gmail.com")
+            self.assertEqual(db.get_active_gmail_account()["id"], first["id"])
+            self.assertEqual(len(db.list_gmail_accounts()), 2)
+
+            db.set_active_gmail_account(second["id"])
+            self.assertEqual(db.get_active_gmail_account()["id"], second["id"])
+            active_flags = [account["is_active"] for account in db.list_gmail_accounts()]
+            self.assertEqual(sorted(active_flags), [0, 1])
+
+            self.assertIsNone(db.set_active_gmail_account("missing-id"))
+
+            db.deactivate_gmail_accounts()
+            self.assertIsNone(db.get_active_gmail_account())
+
+            self.assertTrue(db.delete_gmail_account(first["id"]))
+            self.assertFalse(db.delete_gmail_account(first["id"]))
+            self.assertEqual(len(db.list_gmail_accounts()), 1)
+
     def test_mark_sent_records_contacted_history(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "test.sqlite3"

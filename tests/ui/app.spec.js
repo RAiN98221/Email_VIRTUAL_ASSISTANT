@@ -9,7 +9,16 @@ async function openPage(page, pageId) {
 
 function cleanupUploadedCsv(filename) {
   const uploadPath = path.join(process.cwd(), "uploaded_csv", filename);
-  if (fs.existsSync(uploadPath)) fs.unlinkSync(uploadPath);
+  // Windows Defender can briefly lock freshly written files; cleanup must not fail the test.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      if (fs.existsSync(uploadPath)) fs.unlinkSync(uploadPath);
+      return;
+    } catch (error) {
+      if (!["EBUSY", "EPERM"].includes(error.code)) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+    }
+  }
 }
 
 test.describe("CSV Email Assistant UI", () => {

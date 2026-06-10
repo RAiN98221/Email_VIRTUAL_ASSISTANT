@@ -12,13 +12,19 @@ from starlette.datastructures import UploadFile
 from app import db
 from app.graph import SendResult, SendVerification
 from app.main import (
+    GmailAccountRequest,
     PreviewRequest,
     QueueRequest,
     ReplySyncRequest,
     SendTestRequest,
     SuppressionRequest,
     TemplateRequest,
+    accounts,
+    activate_account,
+    add_account,
     available_csv_files,
+    deactivate_accounts,
+    delete_account,
     build_preview,
     create_job,
     create_suppression,
@@ -47,6 +53,62 @@ class MainTests(unittest.TestCase):
         csv_path = Path(tmp) / "test_contacts.csv"
         csv_path.write_text(self.SAMPLE_CONTACTS_CSV, encoding="utf-8")
         return [{"name": "test_contacts.csv", "path": str(csv_path), "default": False}]
+
+    def test_account_endpoints_manage_lifecycle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+
+            added = add_account(GmailAccountRequest(email="Outreach@Gmail.com", app_password="abcd efgh ijkl mnop", verify=False))
+            self.assertEqual(added["account"]["email"], "outreach@gmail.com")
+            self.assertTrue(added["account"]["is_active"])
+
+            with self.assertRaises(HTTPException) as duplicate:
+                add_account(GmailAccountRequest(email="outreach@gmail.com", app_password="abcdefghijklmnop", verify=False))
+            self.assertEqual(duplicate.exception.status_code, 409)
+
+            with self.assertRaises(HTTPException) as invalid:
+                add_account(GmailAccountRequest(email="not-an-email", app_password="abcdefghijklmnop", verify=False))
+            self.assertEqual(invalid.exception.status_code, 400)
+
+            second = add_account(GmailAccountRequest(email="backup@gmail.com", app_password="abcdefghijklmnop", verify=False, activate=False))
+            self.assertFalse(second["account"]["is_active"])
+
+            activated = activate_account(second["account"]["id"])
+            self.assertTrue(activated["account"]["is_active"])
+            listing = accounts()
+            active = [account for account in listing["accounts"] if account["is_active"]]
+            self.assertEqual(len(active), 1)
+            self.assertEqual(active[0]["email"], "backup@gmail.com")
+
+            deactivate_accounts()
+            listing = accounts()
+            self.assertFalse(any(account["is_active"] for account in listing["accounts"]))
+
+            self.assertEqual(delete_account(second["account"]["id"]), {"deleted": True, "id": second["account"]["id"]})
+            with self.assertRaises(HTTPException) as missing:
+                delete_account(second["account"]["id"])
+            self.assertEqual(missing.exception.status_code, 404)
+
+    def test_add_account_verifies_credentials_with_gmail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+
+            with patch("app.main.mail_client") as mock_client:
+                mock_client.return_value.verify_login.side_effect = RuntimeError("Username and Password not accepted")
+                with self.assertRaises(HTTPException) as rejected:
+                    add_account(GmailAccountRequest(email="real@gmail.com", app_password="wrong password 1234"))
+            self.assertEqual(rejected.exception.status_code, 400)
+            self.assertIn("rejected", rejected.exception.detail)
+            self.assertEqual(accounts()["accounts"], [])
+
+            with patch("app.main.mail_client") as mock_client:
+                added = add_account(GmailAccountRequest(email="real@gmail.com", app_password="abcd efgh ijkl mnop"))
+            mock_client.return_value.verify_login.assert_called_once_with("real@gmail.com", "abcdefghijklmnop")
+            self.assertTrue(added["account"]["is_active"])
 
     def test_create_job_honors_send_limit(self):
         with tempfile.TemporaryDirectory() as tmp:
