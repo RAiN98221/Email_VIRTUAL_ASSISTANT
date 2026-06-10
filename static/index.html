@@ -170,8 +170,8 @@ and I'm looking to collaborate with experienced engineers like you.
 Would love to connect and explore how we can help each other.
 
 Best,
-Sujanesh</textarea></label><div class="editor-footer"><span id="campaignWordCount">0 characters · 0 words</span><button id="campaignPreviewBtn" type="button" class="link-button">Preview email</button></div></section>
-            <aside class="preview-card embedded-panel"><h2>Email Preview</h2><div class="email-paper"><p>To: <span id="campaignPreviewTo">{{first_name}}</span></p><strong>Subject: <span id="campaignLiveSubject"></span></strong><div id="campaignLiveBody"></div></div></aside>
+Sujanesh</textarea></label><div class="editor-footer"><span id="campaignWordCount">0 characters · 0 words</span><button id="campaignPreviewBtn" type="button" class="link-button">Preview email</button></div><div class="rotation-card"><div class="section-title"><h3>Rotate templates</h3><span id="rotationStatus" class="variables-hint">Off</span></div><p class="rotation-hint">Select 2 or more saved templates to split recipients across them and reduce spam-filter risk. When active, the editor above is ignored.</p><div id="rotationTemplateList" class="rotation-list"><p class="empty-state">No saved templates yet. Save templates from the Templates page first.</p></div></div></section>
+            <aside class="preview-card embedded-panel"><h2>Email Preview</h2><div class="email-paper"><p>To: <span id="campaignPreviewTo">{{first_name}}</span></p><strong>Subject: <span id="campaignLiveSubject"></span></strong><div id="campaignLiveBody"></div></div><small id="rotationPreviewNote" hidden></small></aside>
           </div>
         </div>
         <div class="workflow-panel" data-workflow-panel="3">
@@ -365,6 +365,7 @@ Sujanesh</textarea></label><div class="attachment-card"><div><h3>Attachments</h3
       <dl class="modal-summary">
         <div><dt>Campaign</dt><dd id="confirmCampaignName">Untitled Campaign</dd></div>
         <div><dt>Recipients</dt><dd id="confirmRecipientCount">0 selected</dd></div>
+        <div><dt>Templates</dt><dd id="confirmTemplates">Inline template</dd></div>
         <div><dt>Send every</dt><dd id="confirmSendRule">10 minutes</dd></div>
         <div><dt>Daily limit</dt><dd id="confirmDailyLimit">25 emails</dd></div>
       </dl>

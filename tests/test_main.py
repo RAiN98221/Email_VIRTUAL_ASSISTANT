@@ -98,6 +98,72 @@ class MainTests(unittest.TestCase):
             self.assertEqual(result["queued"], 2)
             self.assertEqual([item["row_index"] for item in queued], [3, 5])
 
+    def test_create_job_rotates_templates_round_robin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+            variant_a = db.save_template("Variant A", "A {{first_name}}", "Body A {{first_name}}")
+            variant_b = db.save_template("Variant B", "B {{first_name}}", "Body B {{first_name}}")
+            payload = QueueRequest(
+                csv_file="test_contacts.csv",
+                subject="Inline {{first_name}}",
+                body="Inline body",
+                template_ids=[variant_a["id"], variant_b["id"]],
+                exclude_company_emails=False,
+                gender_filter="all",
+            )
+            with patch("app.main.available_csv_files") as available_csv_files:
+                available_csv_files.return_value = self.write_contacts_csv(tmp)
+                result = create_job(payload)
+            queued = db.list_queue(result["job_id"])
+            self.assertEqual(
+                [item["subject"] for item in queued],
+                ["A Jamie", "B Alex", "A Pat", "B Sam"],
+            )
+            self.assertEqual(
+                [item["template_name"] for item in queued],
+                ["Variant A", "Variant B", "Variant A", "Variant B"],
+            )
+            job = db.list_jobs()[0]
+            self.assertEqual(job["template_rotation"], '["Variant A", "Variant B"]')
+
+    def test_build_preview_rejects_unknown_rotation_template(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+            payload = PreviewRequest(
+                csv_file="test_contacts.csv",
+                subject="Hi {{first_name}}",
+                body="Hello",
+                template_ids=["missing-a", "missing-b"],
+            )
+            with self.assertRaises(HTTPException) as ctx:
+                build_preview(payload)
+            self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_single_template_selection_keeps_inline_behavior(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+            variant_a = db.save_template("Variant A", "A {{first_name}}", "Body A")
+            payload = PreviewRequest(
+                csv_file="test_contacts.csv",
+                subject="Inline {{first_name}}",
+                body="Inline body",
+                template_ids=[variant_a["id"]],
+                exclude_company_emails=False,
+                gender_filter="all",
+            )
+            with patch("app.main.available_csv_files") as available_csv_files:
+                available_csv_files.return_value = self.write_contacts_csv(tmp)
+                preview = build_preview(payload)
+            subjects = [row["subject"] for row in preview["rows"]]
+            self.assertEqual(subjects, ["Inline Jamie", "Inline Alex", "Inline Pat", "Inline Sam"])
+            self.assertTrue(all(row["template_name"] is None for row in preview["rows"]))
+
     def test_create_job_stores_selected_attachments(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "test.sqlite3"

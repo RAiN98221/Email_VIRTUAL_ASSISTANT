@@ -148,6 +148,7 @@ def init_db(path: Path | None = None) -> None:
             "verification_detail": "ALTER TABLE queue_items ADD COLUMN verification_detail TEXT",
             "verified_at": "ALTER TABLE queue_items ADD COLUMN verified_at TEXT",
             "unsubscribe_token": "ALTER TABLE queue_items ADD COLUMN unsubscribe_token TEXT",
+            "template_name": "ALTER TABLE queue_items ADD COLUMN template_name TEXT",
         }
         for column, statement in queue_migrations.items():
             if column not in existing_queue_columns:
@@ -175,6 +176,7 @@ def init_db(path: Path | None = None) -> None:
             ),
             "pause_reason": "ALTER TABLE jobs ADD COLUMN pause_reason TEXT",
             "attachment_files": "ALTER TABLE jobs ADD COLUMN attachment_files TEXT",
+            "template_rotation": "ALTER TABLE jobs ADD COLUMN template_rotation TEXT",
         }
         for column, statement in job_migrations.items():
             if column not in existing_job_columns:
@@ -338,6 +340,7 @@ def create_job(
     override_contacted: bool,
     content_type: str,
     attachment_files: list[str] | None = None,
+    template_rotation: list[str] | None = None,
 ) -> str:
     job_id = str(uuid.uuid4())
     now = utc_now()
@@ -347,8 +350,8 @@ def create_job(
             INSERT INTO jobs (
                 id, campaign_name, status, interval_minutes, interval_jitter_minutes, daily_send_limit,
                 max_failures, auto_pause_on_failure, business_start, business_end, timezone,
-                override_contacted, content_type, attachment_files, created_at, updated_at
-            ) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                override_contacted, content_type, attachment_files, template_rotation, created_at, updated_at
+            ) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id,
@@ -364,6 +367,7 @@ def create_job(
                 1 if override_contacted else 0,
                 content_type,
                 json.dumps(attachment_files or [], ensure_ascii=True),
+                json.dumps(template_rotation or [], ensure_ascii=True),
                 now,
                 now,
             ),
@@ -373,9 +377,9 @@ def create_job(
                 """
                 INSERT INTO queue_items (
                     job_id, row_index, email, email_norm, first_name, last_name,
-                    subject, body, row_data_json, status, scheduled_at, created_at,
+                    subject, body, template_name, row_data_json, status, scheduled_at, created_at,
                     updated_at, unsubscribe_token
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
                 """,
                 (
                     job_id,
@@ -386,6 +390,7 @@ def create_job(
                     item.get("last_name", ""),
                     item["subject"],
                     item["body"],
+                    item.get("template_name"),
                     json.dumps(item["row_data"], ensure_ascii=True),
                     now,
                     now,

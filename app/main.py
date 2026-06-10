@@ -30,6 +30,7 @@ from .settings import ROOT_DIR, settings
 class PreviewRequest(BaseModel):
     subject: str = Field(min_length=1)
     body: str = Field(min_length=1)
+    template_ids: list[str] = Field(default_factory=list, max_length=20)
     csv_file: str | None = None
     content_type: Literal["Text", "HTML"] = "Text"
     override_contacted: bool = False
@@ -382,9 +383,23 @@ def contacts(csv_file: str | None = None) -> dict:
     }
 
 
+def rotation_templates(payload: PreviewRequest) -> list[dict]:
+    """Templates cycled across recipients; fewer than 2 selections falls back to the inline editor."""
+    if len(payload.template_ids) < 2:
+        return [{"name": None, "subject": payload.subject, "body": payload.body}]
+    templates = []
+    for template_id in payload.template_ids:
+        template = db.get_template(template_id)
+        if not template:
+            raise HTTPException(status_code=400, detail="A template selected for rotation no longer exists.")
+        templates.append({"name": template["name"], "subject": template["subject"], "body": template["body"]})
+    return templates
+
+
 def build_preview(payload: PreviewRequest) -> dict:
     if payload.age_min is not None and payload.age_max is not None and payload.age_min > payload.age_max:
         raise HTTPException(status_code=400, detail="Minimum age cannot be greater than maximum age.")
+    templates = rotation_templates(payload)
     manual = manual_contacts(payload.manual_recipients)
     contacts = []
     if not payload.manual_only:
@@ -409,7 +424,8 @@ def build_preview(payload: PreviewRequest) -> dict:
         "company_filtered": 0,
         "gender_filtered": 0,
     }
-    for contact in contacts:
+    for index, contact in enumerate(contacts):
+        template = templates[index % len(templates)]
         errors = validate_contact(contact)
         age = parse_age(contact.age)
         gender = contact.gender.strip().lower()
@@ -425,8 +441,8 @@ def build_preview(payload: PreviewRequest) -> dict:
                 or (payload.age_max is not None and age > payload.age_max)
             )
         )
-        subject, missing_subject = render_template(payload.subject, contact.row_data)
-        body, missing_body = render_template(payload.body, contact.row_data)
+        subject, missing_subject = render_template(template["subject"], contact.row_data)
+        body, missing_body = render_template(template["body"], contact.row_data)
         email_norm = normalize_email(contact.email)
         company_email = bool(email_norm and is_valid_email(contact.email) and not is_personal_email(contact.email))
         already_contacted = email_norm in contacted
@@ -469,6 +485,7 @@ def build_preview(payload: PreviewRequest) -> dict:
                 "last_name": contact.last_name,
                 "subject": subject,
                 "body": body,
+                "template_name": template["name"],
                 "missing_variables": missing,
                 "already_contacted": already_contacted,
                 "suppressed": bool(suppression),
@@ -497,6 +514,7 @@ def preview(payload: PreviewRequest) -> dict:
 
 @app.post("/api/jobs")
 def create_job(payload: QueueRequest) -> dict:
+    rotation = rotation_templates(payload)
     preview_data = build_preview(payload)
     attachment_paths = selected_attachment_paths(payload.attachment_ids)
     items = [row for row in preview_data["rows"] if row["sendable"]]
@@ -521,6 +539,7 @@ def create_job(payload: QueueRequest) -> dict:
         override_contacted=payload.override_contacted,
         content_type=payload.content_type,
         attachment_files=list(payload.attachment_ids),
+        template_rotation=[template["name"] for template in rotation if template["name"]],
     )
     return {"job_id": job_id, "queued": len(items), "summary": preview_data["summary"]}
 

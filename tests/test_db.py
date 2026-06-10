@@ -145,6 +145,51 @@ class DbTests(unittest.TestCase):
             self.assertEqual(removed, 2)
             self.assertEqual(names, ["Real Template"])
 
+    def test_migration_adds_template_rotation_columns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+            with db.connect() as conn:
+                queue_columns = {row["name"] for row in conn.execute("PRAGMA table_info(queue_items)")}
+                job_columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
+            self.assertIn("template_name", queue_columns)
+            self.assertIn("template_rotation", job_columns)
+
+    def test_create_job_stores_template_name_and_rotation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+            items = [
+                {
+                    "row_index": 2,
+                    "email": "a@example.com",
+                    "email_norm": "a@example.com",
+                    "subject": "Hi",
+                    "body": "Hello",
+                    "template_name": "Variant A",
+                    "row_data": {},
+                },
+                {
+                    "row_index": 3,
+                    "email": "b@example.com",
+                    "email_norm": "b@example.com",
+                    "subject": "Hey",
+                    "body": "Howdy",
+                    "template_name": "Variant B",
+                    "row_data": {},
+                },
+            ]
+            job_id = db.create_job(
+                "Rotation Campaign", items, 10, 2, 25, 3, True, "09:00", "17:00",
+                "America/Chicago", False, "Text", template_rotation=["Variant A", "Variant B"],
+            )
+            queued = db.list_queue(job_id)
+            job = db.list_jobs()[0]
+            self.assertEqual([item["template_name"] for item in queued], ["Variant A", "Variant B"])
+            self.assertEqual(job["template_rotation"], '["Variant A", "Variant B"]')
+
     def test_email_status_summary_counts_queue_states(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "test.sqlite3"

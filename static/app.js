@@ -21,6 +21,7 @@ const state = {
   replyFlags: JSON.parse(localStorage.getItem("replyFlags") || "{}"),
   templates: [],
   selectedTemplateId: null,
+  rotationTemplateIds: new Set(),
 };
 
 const $ = (id) => document.getElementById(id);
@@ -111,6 +112,7 @@ function payload() {
     manual_only: manualOnly,
     subject: fieldValue("subjectStep", "subject"),
     body: fieldValue("bodyStep", "body"),
+    template_ids: rotationActive() ? [...state.rotationTemplateIds] : [],
     content_type: "Text",
     override_contacted: $("overrideContacted").checked || fieldChecked("overrideContactedStep", "overrideContacted"),
     exclude_company_emails: fieldChecked("excludeCompanyEmailsStep", "excludeCompanyEmails"),
@@ -588,6 +590,9 @@ async function deleteCurrentTemplate() {
 async function loadTemplates() {
   const { templates } = await api("/api/templates");
   state.templates = templates;
+  const validIds = new Set(templates.map((template) => template.id));
+  state.rotationTemplateIds = new Set([...state.rotationTemplateIds].filter((id) => validIds.has(id)));
+  renderRotationTemplateList();
   if (state.selectedTemplateId) {
     const selected = state.templates.find((template) => template.id === state.selectedTemplateId);
     if (selected) applyTemplate(selected);
@@ -597,6 +602,38 @@ async function loadTemplates() {
   } else {
     renderTemplateList();
   }
+}
+
+function rotationActive() {
+  return state.rotationTemplateIds.size >= 2;
+}
+
+function rotationTemplates() {
+  return state.templates.filter((template) => state.rotationTemplateIds.has(template.id));
+}
+
+function renderRotationTemplateList() {
+  const container = $("rotationTemplateList");
+  if (!container) return;
+  container.innerHTML = state.templates.length ? state.templates.map((template) => `
+    <label class="rotation-item">
+      <input type="checkbox" data-rotation-id="${escapeHtml(template.id)}" ${state.rotationTemplateIds.has(template.id) ? "checked" : ""}>
+      <span><strong>${escapeHtml(template.name)}</strong><small>${escapeHtml(template.subject)}</small></span>
+    </label>
+  `).join("") : '<p class="empty-state">No saved templates yet. Save templates from the Templates page first.</p>';
+  updateRotationStatus();
+}
+
+function updateRotationStatus() {
+  const status = $("rotationStatus");
+  if (status) {
+    status.textContent = rotationActive()
+      ? `${state.rotationTemplateIds.size} templates rotating`
+      : state.rotationTemplateIds.size === 1
+        ? "Select at least 2 templates"
+        : "Off";
+  }
+  renderCampaignLiveEmail();
 }
 
 async function saveCurrentTemplate() {
@@ -795,8 +832,20 @@ function renderLiveEmail() {
 function renderCampaignLiveEmail(sampleRow = null) {
   const sample = sampleRow || sendableRows()[0] || state.preview?.rows?.[0] || { row_data: {}, email: "{{first_name}}" };
   if (!$("campaignLiveSubject")) return;
-  const subject = fieldValue("subjectStep", "subject");
-  const body = fieldValue("bodyStep", "body");
+  let subject = fieldValue("subjectStep", "subject");
+  let body = fieldValue("bodyStep", "body");
+  const note = $("rotationPreviewNote");
+  if (rotationActive()) {
+    const rotation = rotationTemplates();
+    subject = rotation[0].subject;
+    body = rotation[0].body;
+    if (note) {
+      note.hidden = false;
+      note.textContent = `Rotation active - showing "${rotation[0].name}" (1 of ${rotation.length}). Recipients are split across: ${rotation.map((template) => template.name).join(", ")}.`;
+    }
+  } else if (note) {
+    note.hidden = true;
+  }
   $("campaignPreviewTo").textContent = sample.email || "{{first_name}}";
   $("campaignLiveSubject").textContent = renderTemplate(subject, sample.row_data);
   $("campaignLiveBody").innerHTML = escapeHtml(renderTemplate(body, sample.row_data)).replaceAll("\n", "<br>");
@@ -1003,8 +1052,8 @@ async function loadStatusSummary() {
 async function loadQueueDetails(jobId) {
   const { items } = await api(`/api/jobs/${jobId}/queue`);
   $("queueDetails").innerHTML = `<div class="queue-details"><table class="mini-table">
-    <thead><tr><th>Row</th><th>Email</th><th>Status</th><th>Detail</th></tr></thead>
-    <tbody>${items.map((item) => `<tr><td>${item.row_index}</td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.verification_detail || item.error || "")}</td></tr>`).join("")}</tbody>
+    <thead><tr><th>Row</th><th>Email</th><th>Template</th><th>Status</th><th>Detail</th></tr></thead>
+    <tbody>${items.map((item) => `<tr><td>${item.row_index}</td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.template_name || "Inline")}</td><td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.verification_detail || item.error || "")}</td></tr>`).join("")}</tbody>
   </table></div>`;
 }
 
@@ -1091,6 +1140,9 @@ function openLaunchConfirmModal() {
   }
   $("confirmCampaignName").textContent = fieldValue("campaignNameStep", "campaignName") || "Untitled Campaign";
   $("confirmRecipientCount").textContent = `${state.selectedRows.size} selected`;
+  $("confirmTemplates").textContent = rotationActive()
+    ? `${state.rotationTemplateIds.size} rotating (${rotationTemplates().map((template) => template.name).join(", ")})`
+    : "Inline template";
   $("confirmSendRule").textContent = `${fieldValue("intervalStep", "interval") || 10} minutes ± ${fieldValue("intervalJitterStep", "intervalJitter") || 0}`;
   $("confirmDailyLimit").textContent = `${fieldValue("dailySendLimitStep", "dailySendLimit") || 25} emails`;
   $("launchConfirmModal").hidden = false;
@@ -1543,6 +1595,13 @@ $("newTemplateBtn").addEventListener("click", () => {
 });
 $("saveTemplateBtn").addEventListener("click", () => saveCurrentTemplate().catch((error) => showToast(error, "error", "Template save failed")));
 $("deleteTemplateBtn")?.addEventListener("click", () => deleteCurrentTemplate().catch((error) => showToast(error, "error", "Delete failed")));
+$("rotationTemplateList")?.addEventListener("change", (event) => {
+  const checkbox = event.target.closest("input[data-rotation-id]");
+  if (!checkbox) return;
+  if (checkbox.checked) state.rotationTemplateIds.add(checkbox.dataset.rotationId);
+  else state.rotationTemplateIds.delete(checkbox.dataset.rotationId);
+  updateRotationStatus();
+});
 $("sideTemplateSearch").addEventListener("input", renderSidebarTemplateList);
 $("sideTemplateList").addEventListener("click", (event) => {
   const item = event.target.closest("[data-template-id]");

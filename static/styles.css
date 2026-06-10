@@ -1150,6 +1150,74 @@ button.secondary.danger:hover {
   background: var(--preview-bg);
 }
 
+.rotation-card {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  display: grid;
+  gap: 8px;
+}
+
+.rotation-card h3 {
+  margin: 0;
+}
+
+.rotation-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rotation-list {
+  display: grid;
+  gap: 6px;
+}
+
+.rotation-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.rotation-item:hover {
+  border-color: var(--teal);
+}
+
+.rotation-item input {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--teal);
+}
+
+.rotation-item span {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.rotation-item small {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#rotationPreviewNote {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .test-send-row {
   display: flex;
   gap: 8px;
