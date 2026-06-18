@@ -319,6 +319,25 @@ class MainTests(unittest.TestCase):
             mock_client.return_value.verify_login.assert_called_once_with("real@gmail.com", "abcdefghijklmnop")
             self.assertTrue(added["account"]["is_active"])
 
+    def test_queue_request_rejects_invalid_timezone(self):
+        from pydantic import ValidationError
+
+        with self.assertRaises(ValidationError):
+            QueueRequest(subject="Hi", body="Hello", timezone="Not/AZone")
+
+    def test_queue_request_rejects_out_of_range_clock_time(self):
+        from pydantic import ValidationError
+
+        with self.assertRaises(ValidationError):
+            QueueRequest(subject="Hi", body="Hello", business_start="99:00")
+
+    def test_queue_request_accepts_valid_schedule(self):
+        payload = QueueRequest(
+            subject="Hi", body="Hello", timezone="America/New_York",
+            business_start="08:30", business_end="18:00",
+        )
+        self.assertEqual(payload.timezone, "America/New_York")
+
     def test_create_job_honors_send_limit(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "test.sqlite3"

@@ -6,7 +6,7 @@ import random
 import smtplib
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import db
 from .logging_config import get_logger
@@ -21,10 +21,17 @@ def parse_hhmm(value: str) -> time:
     return time(hour=int(hour), minute=int(minute))
 
 
+class ScheduleConfigError(ValueError):
+    """Raised when a job has an unusable timezone or business-hour window."""
+
+
 def is_within_business_hours(now_utc: datetime, start: str, end: str, tz_name: str) -> bool:
-    local = now_utc.astimezone(ZoneInfo(tz_name))
-    start_time = parse_hhmm(start)
-    end_time = parse_hhmm(end)
+    try:
+        local = now_utc.astimezone(ZoneInfo(tz_name))
+        start_time = parse_hhmm(start)
+        end_time = parse_hhmm(end)
+    except (ZoneInfoNotFoundError, ValueError, KeyError) as exc:
+        raise ScheduleConfigError(str(exc)) from exc
     if start_time <= end_time:
         return start_time <= local.time() <= end_time
     return local.time() >= start_time or local.time() <= end_time
@@ -155,7 +162,27 @@ def process_due_items(graph) -> None:
         ).fetchone()
         if not job:
             return
-        if not is_within_business_hours(now, job["business_start"], job["business_end"], job["timezone"]):
+        try:
+            within_hours = is_within_business_hours(
+                now, job["business_start"], job["business_end"], job["timezone"]
+            )
+        except ScheduleConfigError as exc:
+            # A single misconfigured job must not stall every other running campaign, so pause it.
+            db.set_job_status(
+                job["id"],
+                "paused",
+                f"Auto-paused: invalid schedule configuration ({exc}). Fix the timezone or send window.",
+            )
+            logger.warning(
+                "queue_schedule_config_invalid job_id=%s timezone=%s start=%s end=%s detail=%s",
+                job["id"],
+                job["timezone"],
+                job["business_start"],
+                job["business_end"],
+                exc,
+            )
+            return
+        if not within_hours:
             return
         sent_today = sent_today_count(job["id"], now, job["timezone"])
         if sent_today >= int(job["daily_send_limit"]):

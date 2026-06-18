@@ -9,12 +9,29 @@ from unittest.mock import patch
 from app import db
 from app.graph import SendResult, SendVerification
 from app.scheduler import (
+    ScheduleConfigError,
     is_within_business_hours,
     local_day_window_utc,
     next_scheduled_at,
     process_due_items,
     smtp_failure_suppression_reason,
 )
+
+
+def _sample_items(*emails):
+    return [
+        {
+            "row_index": index + 2,
+            "email": email,
+            "email_norm": email,
+            "first_name": "Sample",
+            "last_name": "Example",
+            "subject": "Hi",
+            "body": "Hello",
+            "row_data": {"email": email},
+        }
+        for index, email in enumerate(emails)
+    ]
 
 
 class SchedulerTests(unittest.TestCase):
@@ -190,6 +207,52 @@ class SchedulerTests(unittest.TestCase):
             job = db.list_jobs()[0]
             self.assertEqual(job["status"], "running")
             self.assertIsNone(job["pause_reason"])
+
+
+    def test_invalid_timezone_raises_schedule_config_error(self):
+        now = datetime(2026, 5, 12, 15, 0, tzinfo=timezone.utc)
+        with self.assertRaises(ScheduleConfigError):
+            is_within_business_hours(now, "09:00", "17:00", "Not/AZone")
+
+    def test_process_due_items_pauses_job_with_invalid_timezone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+            job_id = db.create_job(
+                "Bad TZ", _sample_items("one@example.com"), 10, 0, 25, 3, True,
+                "09:00", "17:00", "Not/AZone", False, "Text",
+            )
+            graph = MagicMock()
+
+            process_due_items(graph)
+
+            graph.send_mail.assert_not_called()
+            job = db.list_jobs()[0]
+            self.assertEqual(job["status"], "paused")
+            self.assertIn("invalid schedule configuration", job["pause_reason"])
+            self.assertEqual(db.list_queue(job_id)[0]["status"], "pending")
+
+    def test_requeue_in_flight_sends_resets_stuck_items(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+            job_id = db.create_job(
+                "Crash recovery", _sample_items("one@example.com", "two@example.com"),
+                10, 0, 25, 3, True, "00:00", "23:59", "UTC", False, "Text",
+            )
+            stuck_id = db.list_queue(job_id)[0]["id"]
+            with db.connect(db_path) as conn:
+                conn.execute(
+                    "UPDATE queue_items SET status = 'sending' WHERE id = ?", (stuck_id,)
+                )
+
+            requeued = db.requeue_in_flight_sends()
+
+            self.assertEqual(requeued, 1)
+            statuses = {item["id"]: item["status"] for item in db.list_queue(job_id)}
+            self.assertEqual(statuses[stuck_id], "pending")
 
 
 if __name__ == "__main__":

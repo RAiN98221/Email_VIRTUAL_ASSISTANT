@@ -1908,6 +1908,18 @@ button.secondary.danger:hover {
   min-width: 220px;
 }
 
+.setting-box.time-window label:not(.check-row) {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.setting-box.time-window input {
+  width: 100%;
+  min-width: 0;
+}
+
 .check-row {
   display: flex;
   align-items: center;

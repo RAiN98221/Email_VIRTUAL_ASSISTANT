@@ -338,6 +338,25 @@ def delete_gmail_account(account_id: str) -> bool:
         return cursor.rowcount > 0
 
 
+def requeue_in_flight_sends() -> int:
+    """Reset items left in 'sending' by a crash/restart back to 'pending' so the campaign resumes.
+
+    The scheduler marks an item 'sending' before handing it to SMTP; if the process stops between
+    that update and mark_sent/mark_failed, the item would otherwise stay 'sending' forever and stall
+    the job. Returns the number of items requeued.
+    """
+    with connect() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE queue_items
+            SET status = 'pending', updated_at = ?
+            WHERE status = 'sending'
+            """,
+            (utc_now(),),
+        )
+        return cursor.rowcount
+
+
 def contacted_emails() -> set[str]:
     with connect() as conn:
         return {row["email_norm"] for row in conn.execute("SELECT email_norm FROM contacted")}

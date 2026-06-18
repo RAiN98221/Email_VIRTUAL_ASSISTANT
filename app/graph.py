@@ -27,6 +27,33 @@ PLACEHOLDER_SMTP_VALUES = {"", "your-gmail-address@gmail.com", "your-google-app-
 logger = get_logger(__name__)
 
 
+def html_to_plain_text(value: str) -> str:
+    """Build a readable text/plain alternative from an HTML body.
+
+    Anchor links are flattened to "label (url)" so recipients on text-only clients (and inbox
+    preview panes) still see the destination instead of a "this message is HTML" placeholder.
+    """
+    text = value or ""
+    text = re.sub(r"(?is)<(script|style|head)[^>]*>.*?</\1>", " ", text)
+
+    def _anchor(match: re.Match[str]) -> str:
+        href = match.group(1).strip()
+        label = re.sub(r"<[^>]+>", "", match.group(2)).strip()
+        label = unescape(label)
+        if not href:
+            return label
+        return f"{label} ({href})" if label and label != href else href
+
+    text = re.sub(r'(?is)<a\b[^>]*\bhref=["\']([^"\']*)["\'][^>]*>(.*?)</a>', _anchor, text)
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?i)</p\s*>", "\n\n", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = unescape(text).replace("\xa0", " ")
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines()]
+    compact = "\n".join(line for line in lines if line)
+    return re.sub(r"\n{3,}", "\n\n", compact).strip()
+
+
 @dataclass(frozen=True)
 class MailCredentials:
     from_email: str
@@ -192,7 +219,8 @@ class GmailSmtpClient:
         for header, value in (extra_headers or {}).items():
             message[header] = value
         if content_type.lower() == "html":
-            message.set_content("This message contains HTML content.")
+            plain_alternative = html_to_plain_text(body) or "This message contains HTML content."
+            message.set_content(plain_alternative)
             message.add_alternative(body, subtype="html")
         else:
             message.set_content(body)

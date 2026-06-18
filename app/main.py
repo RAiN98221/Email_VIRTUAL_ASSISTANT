@@ -6,14 +6,16 @@ import hmac
 import json
 import re
 from html import escape
+from datetime import time as dt_time
 from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from . import db
 from .contacts import (
@@ -60,6 +62,27 @@ class QueueRequest(PreviewRequest):
     business_start: str = Field(default="09:00", pattern=r"^\d{2}:\d{2}$")
     business_end: str = Field(default="17:00", pattern=r"^\d{2}:\d{2}$")
     timezone: str = "America/Chicago"
+
+    @field_validator("business_start", "business_end")
+    @classmethod
+    def _valid_clock_time(cls, value: str) -> str:
+        hour, minute = (int(part) for part in value.split(":", 1))
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError("Times must be between 00:00 and 23:59.")
+        dt_time(hour=hour, minute=minute)
+        return value
+
+    @field_validator("timezone")
+    @classmethod
+    def _valid_timezone(cls, value: str) -> str:
+        name = value.strip()
+        if not name:
+            raise ValueError("Choose a timezone.")
+        try:
+            ZoneInfo(name)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"Unknown timezone: {name}") from exc
+        return name
 
 
 class SendTestRequest(BaseModel):
@@ -119,6 +142,7 @@ CALENDLY_WEBHOOK_PATH = "/api/calendly/webhook"
 async def startup() -> None:
     global _stop_event, _scheduler_task
     db.init_db()
+    db.requeue_in_flight_sends()
     _stop_event = asyncio.Event()
     _scheduler_task = asyncio.create_task(run_scheduler(_stop_event))
 
