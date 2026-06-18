@@ -5,6 +5,21 @@ from app import db
 
 
 class DbTests(unittest.TestCase):
+    def test_app_settings_get_set_with_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+
+            self.assertEqual(db.get_app_setting("scheduling_url", ""), "")
+            self.assertEqual(db.get_app_setting("scheduling_url", "fallback"), "fallback")
+
+            db.set_app_setting("scheduling_url", "https://calendly.com/me/intro")
+            self.assertEqual(db.get_app_setting("scheduling_url"), "https://calendly.com/me/intro")
+
+            db.set_app_setting("scheduling_url", "https://cal.com/me")
+            self.assertEqual(db.get_app_setting("scheduling_url"), "https://cal.com/me")
+
     def test_gmail_account_crud_and_active_switching(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "test.sqlite3"

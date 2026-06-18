@@ -6,6 +6,8 @@ from app.contacts import (
     Contact,
     is_personal_email,
     load_contacts,
+    manual_contacts,
+    names_from_email,
     normalize_email,
     render_template,
     validate_contact,
@@ -34,6 +36,36 @@ class ContactTests(unittest.TestCase):
             self.assertEqual(len(contacts), 1)
             self.assertEqual(contacts[0].age, "")
             self.assertEqual(contacts[0].birth_date, "")
+
+    def test_names_from_email_handles_separators_digits_and_case(self):
+        self.assertEqual(names_from_email("ivan.gabes@gmail.com"), ("Ivan", "Gabes"))
+        self.assertEqual(names_from_email("jane_doe@x.com"), ("Jane", "Doe"))
+        self.assertEqual(names_from_email("spencer.walsh98221@gmail.com"), ("Spencer", "Walsh"))
+        self.assertEqual(names_from_email("ivanGabes@gmail.com"), ("Ivan", "Gabes"))
+        self.assertEqual(names_from_email("spencerwalsh98221@gmail.com"), ("Spencerwalsh", ""))
+        self.assertEqual(names_from_email(""), ("", ""))
+        self.assertEqual(names_from_email("12345@x.com"), ("", ""))
+
+    def test_load_contacts_fills_first_name_from_email_when_blank(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "contacts.csv"
+            path.write_text(
+                "first_name,last_name,email,phone,city,state,gender\n"
+                "Ada,Lovelace,ada@example.com,555,Austin,TX,F\n"
+                ",,jane.doe@example.com,555,Austin,TX,F\n",
+                encoding="utf-8",
+            )
+
+            contacts = load_contacts(path)
+
+            self.assertEqual((contacts[0].first_name, contacts[0].last_name), ("Ada", "Lovelace"))
+            self.assertEqual((contacts[1].first_name, contacts[1].last_name), ("Jane", "Doe"))
+            self.assertEqual(contacts[1].row_data["first_name"], "Jane")
+
+    def test_manual_contacts_derive_first_name_from_email(self):
+        contacts = manual_contacts(["spencer.walsh98221@gmail.com", "Bob Smith <bob@x.com>"])
+        self.assertEqual((contacts[0].first_name, contacts[0].last_name), ("Spencer", "Walsh"))
+        self.assertEqual((contacts[1].first_name, contacts[1].last_name), ("Bob", "Smith"))
 
     def test_validate_contact_requires_email_and_adult(self):
         contact = Contact(2, "A", "B", "bad", "", "", "", "", "17", "")

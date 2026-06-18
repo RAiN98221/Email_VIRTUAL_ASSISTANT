@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
+import json
 import re
+from html import escape
 from pathlib import Path
 from typing import Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -93,6 +98,10 @@ class GmailAccountRequest(BaseModel):
     verify: bool = True
 
 
+class SchedulingSettingsRequest(BaseModel):
+    scheduling_url: str = Field(default="", max_length=500)
+
+
 app = FastAPI(title="CSV Email Assistant")
 app.mount("/static", StaticFiles(directory=ROOT_DIR / "static"), name="static")
 _stop_event: asyncio.Event | None = None
@@ -101,6 +110,9 @@ CSV_UPLOAD_DIR = ROOT_DIR / "uploaded_csv"
 ATTACHMENT_UPLOAD_DIR = ROOT_DIR / "uploaded_attachments"
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 MAX_TOTAL_ATTACHMENT_BYTES = 20 * 1024 * 1024
+SCHEDULING_URL_KEY = "scheduling_url"
+CALENDLY_SIGNING_KEY = "calendly_webhook_signing_key"
+CALENDLY_WEBHOOK_PATH = "/api/calendly/webhook"
 
 
 @app.on_event("startup")
@@ -213,6 +225,97 @@ def delete_account(account_id: str) -> dict:
     if not db.delete_gmail_account(account_id):
         raise HTTPException(status_code=404, detail="Account not found")
     return {"deleted": True, "id": account_id}
+
+
+@app.get("/api/settings/scheduling")
+def scheduling_settings() -> dict:
+    return {"scheduling_url": db.get_app_setting(SCHEDULING_URL_KEY, "")}
+
+
+@app.post("/api/settings/scheduling")
+def update_scheduling_settings(payload: SchedulingSettingsRequest) -> dict:
+    url = payload.scheduling_url.strip()
+    if url and not url.lower().startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="Enter a full scheduling URL starting with https://")
+    db.set_app_setting(SCHEDULING_URL_KEY, url)
+    return {"scheduling_url": url}
+
+
+def verify_calendly_signature(signing_key: str, header: str, body: bytes) -> bool:
+    """Validates Calendly's 'Calendly-Webhook-Signature: t=<ts>,v1=<hmac>' header."""
+    try:
+        parts = dict(item.split("=", 1) for item in header.split(",") if "=" in item)
+    except ValueError:
+        return False
+    timestamp = parts.get("t", "")
+    expected = parts.get("v1", "")
+    if not timestamp or not expected:
+        return False
+    signed_payload = f"{timestamp}.".encode("utf-8") + body
+    digest = hmac.new(signing_key.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(digest, expected)
+
+
+@app.post(CALENDLY_WEBHOOK_PATH)
+async def calendly_webhook(request: Request) -> dict:
+    raw = await request.body()
+    signing_key = db.get_app_setting(CALENDLY_SIGNING_KEY, "")
+    if signing_key:
+        signature = request.headers.get("Calendly-Webhook-Signature", "")
+        if not verify_calendly_signature(signing_key, signature, raw):
+            raise HTTPException(status_code=401, detail="Invalid Calendly webhook signature.")
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload.") from exc
+
+    event_kind = str(data.get("event") or "")
+    if event_kind not in {"invitee.created", "invitee.canceled"}:
+        return {"ok": True, "ignored": event_kind}
+
+    payload = data.get("payload") or {}
+    scheduled = payload.get("scheduled_event") or {}
+    created = db.record_calendly_booking(
+        event_kind=event_kind,
+        invitee_name=str(payload.get("name") or ""),
+        invitee_email=str(payload.get("email") or ""),
+        event_name=str(scheduled.get("name") or ""),
+        event_start=str(scheduled.get("start_time") or ""),
+        invitee_uri=str(payload.get("uri") or ""),
+    )
+    return {"ok": True, "recorded": created}
+
+
+@app.get("/api/calendly/bookings")
+def calendly_bookings(limit: int = 20) -> dict:
+    return {
+        "bookings": db.list_calendly_bookings(limit),
+        "unread": db.count_unread_calendly_bookings(),
+    }
+
+
+@app.post("/api/calendly/bookings/read")
+def mark_calendly_bookings_read() -> dict:
+    db.mark_calendly_bookings_read()
+    return {"ok": True, "unread": 0}
+
+
+class CalendlyWebhookSettingsRequest(BaseModel):
+    signing_key: str = Field(default="", max_length=300)
+
+
+@app.get("/api/settings/calendly-webhook")
+def calendly_webhook_settings() -> dict:
+    return {
+        "configured": bool(db.get_app_setting(CALENDLY_SIGNING_KEY, "")),
+        "webhook_path": CALENDLY_WEBHOOK_PATH,
+    }
+
+
+@app.post("/api/settings/calendly-webhook")
+def update_calendly_webhook_settings(payload: CalendlyWebhookSettingsRequest) -> dict:
+    db.set_app_setting(CALENDLY_SIGNING_KEY, payload.signing_key.strip())
+    return {"configured": bool(payload.signing_key.strip())}
 
 
 @app.get("/api/templates")
@@ -464,10 +567,60 @@ def rotation_templates(payload: PreviewRequest) -> list[dict]:
     return templates
 
 
+def build_scheduling_link(base_url: str, contact) -> str:
+    """Append URL-encoded name/email so the recipient's Calendly form opens pre-filled."""
+    base = (base_url or "").strip()
+    if not base:
+        return ""
+    full_name = " ".join(part for part in (contact.first_name, contact.last_name) if part).strip()
+    parts = urlsplit(base)
+    query = dict(parse_qsl(parts.query))
+    if full_name:
+        query["name"] = full_name
+    if contact.email:
+        query["email"] = contact.email
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+SCHEDULE_BUTTON_LABEL = "Schedule a call"
+BUTTON_SENTINEL = "\x00CALENDLY_BUTTON\x00"
+# Both {{calendly_button}} and {{calendly_link}} render the scheduling button so users
+# get the same result regardless of which variable they reach for.
+BUTTON_PLACEHOLDER_RE = re.compile(r"{{\s*calendly_(?:button|link)\s*}}")
+
+
+def uses_calendly_button(text: str) -> bool:
+    return bool(BUTTON_PLACEHOLDER_RE.search(text or ""))
+
+
+def calendly_button_html(link: str) -> str:
+    """Email-safe button with inline styles (external stylesheets are stripped by mail clients)."""
+    return (
+        f'<a href="{escape(link, quote=True)}" '
+        'style="display:inline-block;background-color:#10b981;color:#ffffff;'
+        "text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600;"
+        'font-family:Arial,Helvetica,sans-serif;font-size:15px;">'
+        f"{SCHEDULE_BUTTON_LABEL}</a>"
+    )
+
+
+def render_email_body(body_template: str, values: dict, link: str, as_html: bool) -> tuple[str, list[str]]:
+    if not as_html:
+        text_values = {**values, "calendly_link": link, "calendly_button": link}
+        return render_template(body_template, text_values)
+    button_value = BUTTON_SENTINEL if link else ""
+    html_values = {**values, "calendly_link": button_value, "calendly_button": button_value}
+    rendered, missing = render_template(body_template, html_values)
+    html = escape(rendered).replace("\n", "<br>\n").replace(BUTTON_SENTINEL, calendly_button_html(link))
+    return html, missing
+
+
 def build_preview(payload: PreviewRequest) -> dict:
     if payload.age_min is not None and payload.age_max is not None and payload.age_min > payload.age_max:
         raise HTTPException(status_code=400, detail="Minimum age cannot be greater than maximum age.")
     templates = rotation_templates(payload)
+    scheduling_url = db.get_app_setting(SCHEDULING_URL_KEY, "")
+    use_html = any(uses_calendly_button(template["body"]) for template in templates)
     manual = manual_contacts(payload.manual_recipients)
     contacts = []
     if not payload.manual_only:
@@ -509,8 +662,10 @@ def build_preview(payload: PreviewRequest) -> dict:
                 or (payload.age_max is not None and age > payload.age_max)
             )
         )
-        subject, missing_subject = render_template(template["subject"], contact.row_data)
-        body, missing_body = render_template(template["body"], contact.row_data)
+        link = build_scheduling_link(scheduling_url, contact)
+        subject_values = {**contact.row_data, "calendly_link": link, "calendly_button": link}
+        subject, missing_subject = render_template(template["subject"], subject_values)
+        body, missing_body = render_email_body(template["body"], dict(contact.row_data), link, use_html)
         email_norm = normalize_email(contact.email)
         company_email = bool(email_norm and is_valid_email(contact.email) and not is_personal_email(contact.email))
         already_contacted = email_norm in contacted
@@ -564,7 +719,7 @@ def build_preview(payload: PreviewRequest) -> dict:
                 "row_data": contact.row_data,
             }
         )
-    return {"summary": summary, "rows": rows}
+    return {"summary": summary, "rows": rows, "content_type": "HTML" if use_html else payload.content_type}
 
 
 def csv_contact_email_norms(csv_file: str | None = None) -> set[str]:
@@ -605,7 +760,7 @@ def create_job(payload: QueueRequest) -> dict:
         business_end=payload.business_end,
         timezone_name=payload.timezone,
         override_contacted=payload.override_contacted,
-        content_type=payload.content_type,
+        content_type=preview_data.get("content_type", payload.content_type),
         attachment_files=list(payload.attachment_ids),
         template_rotation=[template["name"] for template in rotation if template["name"]],
     )

@@ -1,4 +1,7 @@
 import asyncio
+import hashlib
+import hmac
+import json
 from io import BytesIO
 from types import SimpleNamespace
 import tempfile
@@ -8,24 +11,49 @@ from unittest.mock import patch
 
 from fastapi import HTTPException
 from starlette.datastructures import UploadFile
+from starlette.requests import Request
+
+
+def make_request(body: bytes, headers: dict | None = None) -> Request:
+    raw_headers = [(key.lower().encode(), value.encode()) for key, value in (headers or {}).items()]
+    scope = {"type": "http", "method": "POST", "path": "/api/calendly/webhook", "headers": raw_headers}
+
+    async def receive():
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    return Request(scope, receive)
 
 from app import db
 from app.graph import SendResult, SendVerification
+from app.contacts import Contact
 from app.main import (
     GmailAccountRequest,
     PreviewRequest,
     QueueRequest,
     ReplySyncRequest,
+    SchedulingSettingsRequest,
     SendTestRequest,
     SuppressionRequest,
     TemplateRequest,
+    CalendlyWebhookSettingsRequest,
+    CALENDLY_SIGNING_KEY,
     accounts,
     activate_account,
     add_account,
     available_csv_files,
+    build_scheduling_link,
+    calendly_button_html,
+    calendly_bookings,
+    calendly_webhook,
     deactivate_accounts,
     delete_account,
     build_preview,
+    mark_calendly_bookings_read,
+    update_calendly_webhook_settings,
+    uses_calendly_button,
+    verify_calendly_signature,
+    scheduling_settings,
+    update_scheduling_settings,
     create_job,
     create_suppression,
     delete_suppression,
@@ -53,6 +81,187 @@ class MainTests(unittest.TestCase):
         csv_path = Path(tmp) / "test_contacts.csv"
         csv_path.write_text(self.SAMPLE_CONTACTS_CSV, encoding="utf-8")
         return [{"name": "test_contacts.csv", "path": str(csv_path), "default": False}]
+
+    def test_build_scheduling_link_prefills_name_and_email(self):
+        contact = Contact(
+            row_index=0, first_name="Jamie", last_name="Chen", email="jamie.chen@example.com",
+            phone="", city="", state="", birth_date="", age="", gender="",
+        )
+        link = build_scheduling_link("https://calendly.com/me/intro", contact)
+        self.assertIn("https://calendly.com/me/intro?", link)
+        self.assertIn("name=Jamie+Chen", link)
+        self.assertIn("email=jamie.chen%40example.com", link)
+
+        self.assertEqual(build_scheduling_link("", contact), "")
+
+        merged = build_scheduling_link("https://calendly.com/me/intro?utm_source=outreach", contact)
+        self.assertIn("utm_source=outreach", merged)
+        self.assertIn("name=Jamie+Chen", merged)
+
+    @staticmethod
+    def _booking_payload(uri: str = "https://api.calendly.com/scheduled_events/e1/invitees/i1", kind: str = "invitee.created") -> bytes:
+        return json.dumps(
+            {
+                "event": kind,
+                "payload": {
+                    "name": "Ivan Gabel",
+                    "email": "ivan@example.com",
+                    "uri": uri,
+                    "scheduled_event": {"name": "30 Minute Meeting", "start_time": "2026-07-01T15:00:00Z"},
+                },
+            }
+        ).encode("utf-8")
+
+    def test_verify_calendly_signature_matches_hmac(self):
+        body = b'{"event":"invitee.created"}'
+        key = "secret-key"
+        digest = hmac.new(key.encode(), b"1700000000." + body, hashlib.sha256).hexdigest()
+        self.assertTrue(verify_calendly_signature(key, f"t=1700000000,v1={digest}", body))
+        self.assertFalse(verify_calendly_signature(key, "t=1700000000,v1=deadbeef", body))
+        self.assertFalse(verify_calendly_signature(key, "", body))
+
+    def test_calendly_webhook_records_booking_and_marks_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+
+            result = asyncio.run(calendly_webhook(make_request(self._booking_payload())))
+            self.assertEqual(result, {"ok": True, "recorded": True})
+
+            listing = calendly_bookings()
+            self.assertEqual(listing["unread"], 1)
+            self.assertEqual(listing["bookings"][0]["invitee_name"], "Ivan Gabel")
+            self.assertEqual(listing["bookings"][0]["event_name"], "30 Minute Meeting")
+
+            # Duplicate delivery of the same invitee + kind is ignored.
+            duplicate = asyncio.run(calendly_webhook(make_request(self._booking_payload())))
+            self.assertEqual(duplicate["recorded"], False)
+            self.assertEqual(calendly_bookings()["unread"], 1)
+
+            mark_calendly_bookings_read()
+            self.assertEqual(calendly_bookings()["unread"], 0)
+
+    def test_calendly_webhook_ignores_unrelated_events(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+            body = json.dumps({"event": "routing_form_submission.created", "payload": {}}).encode()
+            result = asyncio.run(calendly_webhook(make_request(body)))
+            self.assertEqual(result["ignored"], "routing_form_submission.created")
+            self.assertEqual(calendly_bookings()["unread"], 0)
+
+    def test_calendly_webhook_enforces_signature_when_key_set(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+            update_calendly_webhook_settings(CalendlyWebhookSettingsRequest(signing_key="topsecret"))
+
+            body = self._booking_payload()
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(calendly_webhook(make_request(body, {"Calendly-Webhook-Signature": "t=1,v1=bad"})))
+            self.assertEqual(ctx.exception.status_code, 401)
+
+            digest = hmac.new(b"topsecret", b"1700000000." + body, hashlib.sha256).hexdigest()
+            ok = asyncio.run(
+                calendly_webhook(make_request(body, {"Calendly-Webhook-Signature": f"t=1700000000,v1={digest}"}))
+            )
+            self.assertEqual(ok["recorded"], True)
+
+    def test_scheduling_settings_round_trip_and_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+
+            self.assertEqual(scheduling_settings(), {"scheduling_url": ""})
+            saved = update_scheduling_settings(SchedulingSettingsRequest(scheduling_url="https://calendly.com/me/intro"))
+            self.assertEqual(saved["scheduling_url"], "https://calendly.com/me/intro")
+            self.assertEqual(scheduling_settings()["scheduling_url"], "https://calendly.com/me/intro")
+
+            with self.assertRaises(HTTPException) as invalid:
+                update_scheduling_settings(SchedulingSettingsRequest(scheduling_url="calendly.com/me"))
+            self.assertEqual(invalid.exception.status_code, 400)
+
+            cleared = update_scheduling_settings(SchedulingSettingsRequest(scheduling_url="   "))
+            self.assertEqual(cleared["scheduling_url"], "")
+
+    def test_calendly_button_html_is_safe_anchor(self):
+        html = calendly_button_html("https://calendly.com/me/intro?email=a%40b.com")
+        self.assertIn('<a href="https://calendly.com/me/intro?email=a%40b.com"', html)
+        self.assertIn("Schedule a call", html)
+        self.assertIn("display:inline-block", html)
+        self.assertTrue(uses_calendly_button("Book: {{calendly_button}}"))
+        self.assertTrue(uses_calendly_button("Book: {{calendly_link}}"))  # link variable also renders the button
+        self.assertFalse(uses_calendly_button("Book: {{first_name}}"))
+
+    def test_build_preview_renders_calendly_button_as_html_email(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+            db.set_app_setting("scheduling_url", "https://calendly.com/me/intro")
+            payload = PreviewRequest(
+                subject="Hi {{first_name}}",
+                body="Let's talk.\n{{calendly_button}}\nThanks & regards",
+                csv_file="test_contacts.csv",
+                exclude_company_emails=False,
+                gender_filter="all",
+            )
+            with patch("app.main.available_csv_files") as available_csv_files:
+                available_csv_files.return_value = self.write_contacts_csv(tmp)
+                preview = build_preview(payload)
+            self.assertEqual(preview["content_type"], "HTML")
+            body = preview["rows"][0]["body"]
+            self.assertIn('<a href="https://calendly.com/me/intro?', body)
+            self.assertIn("Schedule a call", body)
+            self.assertNotIn("{{calendly_button}}", body)
+            self.assertIn("<br>", body)  # newlines preserved as HTML
+            self.assertIn("Thanks &amp; regards", body)  # surrounding text is escaped
+
+    def test_build_preview_plain_text_when_button_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+            payload = PreviewRequest(
+                subject="Hi {{first_name}}",
+                body="Plain body with no scheduling variable.",
+                csv_file="test_contacts.csv",
+                exclude_company_emails=False,
+                gender_filter="all",
+            )
+            with patch("app.main.available_csv_files") as available_csv_files:
+                available_csv_files.return_value = self.write_contacts_csv(tmp)
+                preview = build_preview(payload)
+            self.assertEqual(preview["content_type"], "Text")
+            self.assertNotIn("<a href", preview["rows"][0]["body"])
+
+    def test_build_preview_renders_calendly_link_variable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+            db.set_app_setting("scheduling_url", "https://calendly.com/me/intro")
+            payload = PreviewRequest(
+                subject="Hi {{first_name}}",
+                body="Book a call: {{calendly_link}}",
+                csv_file="test_contacts.csv",
+                exclude_company_emails=False,
+                gender_filter="all",
+            )
+            with patch("app.main.available_csv_files") as available_csv_files:
+                available_csv_files.return_value = self.write_contacts_csv(tmp)
+                preview = build_preview(payload)
+            first = preview["rows"][0]
+            # {{calendly_link}} renders the same scheduling button as {{calendly_button}}.
+            self.assertEqual(preview["content_type"], "HTML")
+            self.assertIn('<a href="https://calendly.com/me/intro?', first["body"])
+            self.assertIn("email=", first["body"])
+            self.assertIn("Schedule a call", first["body"])
+            self.assertNotIn("{{calendly_link}}", first["body"])
 
     def test_account_endpoints_manage_lifecycle(self):
         with tempfile.TemporaryDirectory() as tmp:

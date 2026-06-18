@@ -14,6 +14,9 @@ const state = {
   jobsSearch: "",
   replySearch: "",
   accounts: [],
+  calendlyUrl: "",
+  bookings: [],
+  bookingsUnread: 0,
   contactsPage: 1,
   contactsPageSize: 5,
   contactSortOrder: "fresh_first",
@@ -36,6 +39,7 @@ const ICONS = {
   arrowRight: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
   bell: '<path d="M10.27 21a2 2 0 0 0 3.46 0"/><path d="M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.86 18 12.5 18 8a6 6 0 0 0-12 0c0 4.5-1.41 5.86-2.74 7.33"/>',
   calendar: '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  calendarX: '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="m14 14 4 4"/><path d="m18 14-4 4"/>',
   chart: '<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
@@ -220,6 +224,16 @@ function notificationItems() {
   const replies = state.replies.length;
   const sendable = state.preview?.summary?.sendable || 0;
   const items = [];
+  for (const booking of state.bookings.slice(0, 6)) {
+    const who = booking.invitee_name || booking.invitee_email || "Someone";
+    const when = formatBookingTime(booking.event_start);
+    const detail = [booking.event_name, when].filter(Boolean).join(" \u00b7 ");
+    if (booking.event_kind === "invitee.canceled") {
+      items.push({ tone: "warn", title: `Call canceled \u2014 ${who}`, detail: detail || "A scheduled call was canceled.", target: "dashboard", isBooking: true });
+    } else {
+      items.push({ tone: "ok", title: `New call booked \u2014 ${who}`, detail: detail || "A recipient scheduled a call.", target: "dashboard", isBooking: true });
+    }
+  }
   if (!state.auth?.configured) {
     items.push({ tone: "warn", title: "Gmail is not configured", detail: "Set SMTP/Gmail credentials before sending.", target: "settings" });
   }
@@ -241,23 +255,44 @@ function notificationItems() {
   return items.length ? items : [{ tone: "ok", title: "All clear", detail: "No campaign issues need attention right now.", target: "dashboard" }];
 }
 
+function formatBookingTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function notificationIcon(item) {
+  if (item.isBooking) return item.tone === "warn" ? "calendarX" : "calendar";
+  if (item.tone === "bad" || item.tone === "warn") return "triangleAlert";
+  if (item.tone === "ok") return "check";
+  return "bell";
+}
+
 function renderNotifications() {
   if (!$("notificationList")) return;
   const items = notificationItems();
-  const actionableCount = items.filter((item) => item.tone !== "ok" || item.target !== "dashboard").length;
-  $("notificationBadge").textContent = Math.min(actionableCount, 99);
-  $("notificationBadge").classList.toggle("hidden", actionableCount === 0);
+  const otherActionable = items.filter((item) => !item.isBooking && (item.tone !== "ok" || item.target !== "dashboard")).length;
+  const badgeCount = (state.bookingsUnread || 0) + otherActionable;
+  $("notificationBadge").textContent = Math.min(badgeCount, 99);
+  $("notificationBadge").classList.toggle("hidden", badgeCount === 0);
   $("notificationList").innerHTML = items.map((item) => `<button type="button" class="notification-item ${escapeHtml(item.tone)}" data-notify-target="${escapeHtml(item.target)}">
-    <span data-icon="${item.tone === "bad" ? "triangleAlert" : item.tone === "warn" ? "triangleAlert" : item.tone === "ok" ? "check" : "bell"}"></span>
+    <span data-icon="${notificationIcon(item)}"></span>
     <span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></span>
   </button>`).join("");
   initIcons($("notificationList"));
 }
 
-function setNotificationPanel(open) {
+async function setNotificationPanel(open) {
   $("notificationPanel").hidden = !open;
   $("notificationBtn").setAttribute("aria-expanded", String(open));
-  if (open) renderNotifications();
+  if (!open) return;
+  renderNotifications();
+  if (state.bookingsUnread > 0) {
+    state.bookingsUnread = 0;
+    renderNotifications();
+    await api("/api/calendly/bookings/read", { method: "POST" }).catch(() => {});
+  }
 }
 
 function fieldValue(campaignId, fallbackId) {
@@ -274,6 +309,49 @@ function nullableNumber(value) {
 
 function renderTemplate(text, rowData = {}) {
   return String(text || "").replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (_, key) => rowData[key] || `{{${key}}}`);
+}
+
+function buildCalendlyLink(base, rowData = {}) {
+  const trimmed = String(base || "").trim();
+  if (!trimmed) return "";
+  try {
+    const url = new URL(trimmed);
+    const fullName = [rowData.first_name, rowData.last_name].filter(Boolean).join(" ").trim();
+    if (fullName) url.searchParams.set("name", fullName);
+    if (rowData.email) url.searchParams.set("email", rowData.email);
+    return url.toString();
+  } catch {
+    return trimmed;
+  }
+}
+
+function withCalendlyLink(rowData = {}) {
+  const link = buildCalendlyLink(state.calendlyUrl, rowData);
+  return link ? { ...rowData, calendly_link: link } : rowData;
+}
+
+// Both {{calendly_button}} and {{calendly_link}} render the scheduling button.
+const SCHEDULING_VAR_RE = /\{\{\s*calendly_(?:button|link)\s*\}\}/g;
+function usesCalendlyButton(text) {
+  return /\{\{\s*calendly_(?:button|link)\s*\}\}/.test(text || "");
+}
+
+function calendlyButtonHtml(link) {
+  return `<a href="${escapeHtml(link)}" style="display:inline-block;background-color:#10b981;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600;font-family:Arial,Helvetica,sans-serif;font-size:15px;">Schedule a call</a>`;
+}
+
+// Mirrors the server: escapes the recipient-facing text, keeps newlines, and swaps the button token for a real anchor.
+function renderEmailBodyHtml(template, rowData, link) {
+  if (!usesCalendlyButton(template)) {
+    return escapeHtml(renderTemplate(template, { ...rowData, calendly_link: link, calendly_button: link })).replaceAll("\n", "<br>");
+  }
+  if (!link) {
+    const hinted = template.replace(SCHEDULING_VAR_RE, "[Set your Calendly link in Settings -> Scheduling]");
+    return escapeHtml(renderTemplate(hinted, { ...rowData })).replaceAll("\n", "<br>");
+  }
+  const sentinel = "\u0000CALBTN\u0000";
+  const rendered = renderTemplate(template, { ...rowData, calendly_link: sentinel, calendly_button: sentinel });
+  return escapeHtml(rendered).replaceAll("\n", "<br>").replaceAll(sentinel, calendlyButtonHtml(link));
 }
 
 function formatDate(value) {
@@ -460,6 +538,29 @@ async function loadAccounts() {
   }
   $("accountList").innerHTML = rows.join("") || '<p class="empty-state">No Gmail accounts configured yet. Add one below.</p>';
   initIcons($("accountList"));
+}
+
+async function loadSchedulingSettings() {
+  const { scheduling_url: schedulingUrl } = await api("/api/settings/scheduling");
+  state.calendlyUrl = schedulingUrl || "";
+  if ($("schedulingUrl")) $("schedulingUrl").value = state.calendlyUrl;
+  renderCampaignLiveEmail();
+}
+
+async function loadCalendlyBookings() {
+  const data = await api("/api/calendly/bookings");
+  state.bookings = data.bookings || [];
+  state.bookingsUnread = data.unread || 0;
+  renderNotifications();
+}
+
+async function loadCalendlyWebhookSettings() {
+  if (!$("calendlyWebhookUrl")) return;
+  const data = await api("/api/settings/calendly-webhook");
+  $("calendlyWebhookUrl").textContent = `${location.origin}${data.webhook_path}`;
+  $("calendlyWebhookStatus").textContent = data.configured
+    ? "Signing key saved \u2014 incoming webhooks are signature-verified."
+    : "No signing key set \u2014 webhooks are accepted without signature verification.";
 }
 
 async function loadCsvFiles() {
@@ -844,11 +945,21 @@ function renderPreviewTable() {
   updateSelectionStatus();
 }
 
+// When a test first name is provided, personalize to that recipient instead of the sample CSV contact.
+function testRowData(rowData = {}) {
+  const firstName = $("testFirstName")?.value.trim();
+  if (!firstName) return rowData;
+  return { ...rowData, first_name: firstName, last_name: "" };
+}
+
 function renderLiveEmail() {
   const sample = sendableRows()[0] || state.preview?.rows?.[0] || { row_data: {}, email: "{{first_name}}" };
-  $("previewTo").textContent = sample.email || "{{first_name}}";
-  $("liveSubject").textContent = renderTemplate($("subject").value, sample.row_data);
-  $("liveBody").innerHTML = escapeHtml(renderTemplate($("body").value, sample.row_data)).replaceAll("\n", "<br>");
+  const testTo = $("testRecipient")?.value.trim();
+  $("previewTo").textContent = testTo || "recipient@example.com";
+  const rowData = testRowData(sample.row_data);
+  const link = buildCalendlyLink(state.calendlyUrl, rowData);
+  $("liveSubject").textContent = renderTemplate($("subject").value, { ...rowData, calendly_link: link, calendly_button: link });
+  $("liveBody").innerHTML = renderEmailBodyHtml($("body").value, rowData, link);
   const chars = $("body").value.length;
   const words = $("body").value.trim() ? $("body").value.trim().split(/\s+/).length : 0;
   $("wordCount").textContent = `${chars} characters · ${words} words`;
@@ -873,14 +984,16 @@ function renderCampaignLiveEmail(sampleRow = null) {
     note.hidden = true;
   }
   $("campaignPreviewTo").textContent = sample.email || "{{first_name}}";
-  $("campaignLiveSubject").textContent = renderTemplate(subject, sample.row_data);
-  $("campaignLiveBody").innerHTML = escapeHtml(renderTemplate(body, sample.row_data)).replaceAll("\n", "<br>");
+  const rowData = { ...sample.row_data, email: sample.email || sample.row_data?.email };
+  const link = buildCalendlyLink(state.calendlyUrl, rowData);
+  $("campaignLiveSubject").textContent = renderTemplate(subject, { ...rowData, calendly_link: link, calendly_button: link });
+  $("campaignLiveBody").innerHTML = renderEmailBodyHtml(body, rowData, link);
   const chars = body.length;
   const words = body.trim() ? body.trim().split(/\s+/).length : 0;
   $("campaignWordCount").textContent = `${chars} characters · ${words} words`;
 }
 
-const DEFAULT_TEMPLATE_VARIABLES = ["first_name", "last_name", "city", "state", "company", "role"];
+const DEFAULT_TEMPLATE_VARIABLES = ["first_name", "last_name", "city", "state", "company", "role", "calendly_button", "calendly_link"];
 
 function availableTemplateVariables() {
   const names = [...DEFAULT_TEMPLATE_VARIABLES];
@@ -1528,6 +1641,38 @@ $("suppressions").addEventListener("click", async (event) => {
 });
 
 $("refreshJobsBtn").addEventListener("click", async () => { await loadJobs(); await loadStatusSummary(); });
+$("saveSchedulingBtn").addEventListener("click", async () => {
+  const url = $("schedulingUrl").value.trim();
+  const button = $("saveSchedulingBtn");
+  button.disabled = true;
+  try {
+    const result = await api("/api/settings/scheduling", { method: "POST", body: JSON.stringify({ scheduling_url: url }) });
+    state.calendlyUrl = result.scheduling_url || "";
+    $("schedulingUrl").value = state.calendlyUrl;
+    $("schedulingStatus").textContent = state.calendlyUrl ? "Saved. {{calendly_link}} is now live in your templates." : "Cleared. {{calendly_link}} will render empty.";
+    renderCampaignLiveEmail();
+    showToast("Scheduling link saved.", "success", "Calendly updated");
+  } catch (error) {
+    showToast(error, "error", "Could not save link");
+  } finally {
+    button.disabled = false;
+  }
+});
+$("saveWebhookBtn")?.addEventListener("click", async () => {
+  const key = $("calendlyWebhookKey").value.trim();
+  const button = $("saveWebhookBtn");
+  button.disabled = true;
+  try {
+    await api("/api/settings/calendly-webhook", { method: "POST", body: JSON.stringify({ signing_key: key }) });
+    $("calendlyWebhookKey").value = "";
+    await loadCalendlyWebhookSettings();
+    showToast(key ? "Webhook signing key saved." : "Webhook signing key cleared.", "success", "Calendly");
+  } catch (error) {
+    showToast(error, "error", "Could not save key");
+  } finally {
+    button.disabled = false;
+  }
+});
 $("addAccountBtn").addEventListener("click", async () => {
   const email = $("accountEmail").value.trim();
   const password = $("accountPassword").value.trim();
@@ -1666,6 +1811,12 @@ $("contactsNextPage").addEventListener("click", () => {
 });
 $("refreshSuppressionsBtn").addEventListener("click", loadSuppressions);
 $("testRecipient").value = localStorage.getItem("testRecipient") || "";
+$("testRecipient").addEventListener("input", renderLiveEmail);
+$("testFirstName").value = localStorage.getItem("testFirstName") || "";
+$("testFirstName").addEventListener("input", () => {
+  localStorage.setItem("testFirstName", $("testFirstName").value.trim());
+  renderLiveEmail();
+});
 $("sendTestBtn").addEventListener("click", async () => {
   const toEmail = $("testRecipient").value.trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(toEmail)) {
@@ -1675,17 +1826,23 @@ $("sendTestBtn").addEventListener("click", async () => {
   }
   localStorage.setItem("testRecipient", toEmail);
   const sample = sendableRows()[0] || state.preview?.rows?.[0] || { row_data: {} };
+  const rowData = testRowData(sample.row_data);
   const button = $("sendTestBtn");
   const originalHtml = button.innerHTML;
   button.disabled = true;
   button.textContent = "Sending...";
+  const link = buildCalendlyLink(state.calendlyUrl, rowData);
+  const htmlEmail = usesCalendlyButton($("body").value) && Boolean(link);
   try {
     const result = await api("/api/send-test", {
       method: "POST",
       body: JSON.stringify({
         to_email: toEmail,
-        subject: renderTemplate($("subject").value, sample.row_data),
-        body: renderTemplate($("body").value, sample.row_data),
+        subject: renderTemplate($("subject").value, { ...rowData, calendly_link: link, calendly_button: link }),
+        body: htmlEmail
+          ? renderEmailBodyHtml($("body").value, rowData, link)
+          : renderTemplate($("body").value, { ...rowData, calendly_link: link, calendly_button: link }),
+        content_type: htmlEmail ? "HTML" : "Text",
       }),
     });
     const verified = result.result?.verification?.status === "sent_mail_found";
@@ -1810,6 +1967,9 @@ document.addEventListener("keydown", (event) => {
 applyTheme(state.theme);
 loadAuth();
 loadAccounts().catch((error) => showToast(error, "error", "Accounts load failed"));
+loadSchedulingSettings().catch((error) => showToast(error, "error", "Scheduling settings load failed"));
+loadCalendlyBookings().catch(() => {});
+loadCalendlyWebhookSettings().catch(() => {});
 setDefaultStartTime();
 initIcons();
 showPage((window.location.hash || "#dashboard").slice(1));
@@ -1820,4 +1980,8 @@ loadSuppressions();
 loadTemplates();
 renderAttachments();
 renderVariableChips();
-setInterval(async () => { await loadJobs(); await loadStatusSummary(); }, 15000);
+setInterval(async () => {
+  await loadJobs();
+  await loadStatusSummary();
+  await loadCalendlyBookings().catch(() => {});
+}, 15000);

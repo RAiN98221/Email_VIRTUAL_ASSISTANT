@@ -1322,6 +1322,21 @@ button.secondary.danger:hover {
   font-size: 12px;
 }
 
+.setting-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 18px 0 14px;
+}
+
+.webhook-url {
+  margin: 6px 0 10px;
+  word-break: break-all;
+}
+
+.webhook-url code {
+  font-size: 12px;
+}
+
 .account-list {
   display: grid;
   gap: 8px;

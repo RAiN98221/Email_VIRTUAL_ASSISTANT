@@ -108,6 +108,30 @@ def parse_age(age: str) -> float | None:
         return None
 
 
+def names_from_email(email: str) -> tuple[str, str]:
+    """Best-effort (first_name, last_name) derived from an email local part.
+
+    Strips trailing digits (spencerwalsh98221 -> spencerwalsh), splits on
+    common separators and camelCase (ivan.gabes / ivanGabes -> Ivan / Gabes),
+    and drops digit-only chunks. Returns ("", "") when nothing usable remains.
+    """
+    if not email:
+        return "", ""
+    local = email.split("@", 1)[0] if "@" in email else email
+    local = re.sub(r"\d+$", "", local)  # trailing counter digits, e.g. jane.doe42
+    words: list[str] = []
+    for token in re.split(r"[._+\-]+", local):
+        if not token:
+            continue
+        parts = re.findall(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|\d+", token) or [token]
+        words.extend(part for part in parts if part and not part.isdigit())
+    if not words:
+        return "", ""
+    first = words[0].title()
+    last = " ".join(words[1:]).title() if len(words) > 1 else ""
+    return first, last
+
+
 def load_contacts(path: Path) -> list[Contact]:
     if not path.exists():
         raise FileNotFoundError(f"CSV file not found: {path}")
@@ -119,12 +143,20 @@ def load_contacts(path: Path) -> list[Contact]:
             raise ValueError(f"CSV missing required columns: {', '.join(sorted(missing))}")
         contacts = []
         for index, row in enumerate(reader, start=2):
+            first_name = (row.get("first_name") or "").strip()
+            last_name = (row.get("last_name") or "").strip()
+            email = (row.get("email") or "").strip()
+            if not first_name:
+                derived_first, derived_last = names_from_email(email)
+                first_name = derived_first
+                if not last_name:
+                    last_name = derived_last
             contacts.append(
                 Contact(
                     row_index=index,
-                    first_name=(row.get("first_name") or "").strip(),
-                    last_name=(row.get("last_name") or "").strip(),
-                    email=(row.get("email") or "").strip(),
+                    first_name=first_name,
+                    last_name=last_name,
+                    email=email,
                     phone=(row.get("phone") or "").strip(),
                     city=(row.get("city") or "").strip(),
                     state=(row.get("state") or "").strip(),
@@ -153,11 +185,12 @@ def manual_contacts(entries: list[str], *, start_row: int = 1_000_000) -> list[C
             if email_match:
                 email = email_match.group(0)
                 name = entry.replace(email_match.group(0), "").strip(" ,<>\"")
-        local_part = email.split("@", 1)[0] if "@" in email else email
-        inferred_name = name or local_part.replace(".", " ").replace("_", " ").replace("-", " ")
-        parts = [part for part in inferred_name.split() if part]
-        first_name = parts[0].title() if parts else ""
-        last_name = " ".join(parts[1:]).title() if len(parts) > 1 else ""
+        if name:
+            parts = [part for part in name.split() if part]
+            first_name = parts[0].title() if parts else ""
+            last_name = " ".join(parts[1:]).title() if len(parts) > 1 else ""
+        else:
+            first_name, last_name = names_from_email(email)
         contacts.append(
             Contact(
                 row_index=start_row + offset,

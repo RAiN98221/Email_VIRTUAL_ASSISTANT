@@ -144,6 +144,25 @@ def init_db(path: Path | None = None) -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS calendly_bookings (
+                id TEXT PRIMARY KEY,
+                event_kind TEXT NOT NULL,
+                invitee_name TEXT NOT NULL DEFAULT '',
+                invitee_email TEXT NOT NULL DEFAULT '',
+                event_name TEXT NOT NULL DEFAULT '',
+                event_start TEXT NOT NULL DEFAULT '',
+                invitee_uri TEXT NOT NULL DEFAULT '',
+                is_read INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                UNIQUE(invitee_uri, event_kind)
+            );
             """
         )
         existing_queue_columns = {
@@ -191,6 +210,79 @@ def init_db(path: Path | None = None) -> None:
         for column, statement in reply_migrations.items():
             if column not in existing_reply_columns:
                 conn.execute(statement)
+
+
+def get_app_setting(key: str, default: str = "") -> str:
+    with connect() as conn:
+        row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else default
+
+
+def set_app_setting(key: str, value: str) -> None:
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, value, utc_now()),
+        )
+
+
+def record_calendly_booking(
+    *,
+    event_kind: str,
+    invitee_name: str,
+    invitee_email: str,
+    event_name: str,
+    event_start: str,
+    invitee_uri: str,
+) -> bool:
+    """Stores a booking event. Returns True when a new row was inserted (deduped by invitee_uri + kind)."""
+    booking_id = uuid.uuid4().hex
+    with connect() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO calendly_bookings
+                (id, event_kind, invitee_name, invitee_email, event_name, event_start, invitee_uri, is_read, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+            ON CONFLICT(invitee_uri, event_kind) DO NOTHING
+            """,
+            (
+                booking_id,
+                event_kind,
+                invitee_name,
+                invitee_email,
+                event_name,
+                event_start,
+                invitee_uri,
+                utc_now(),
+            ),
+        )
+        return cursor.rowcount > 0
+
+
+def list_calendly_bookings(limit: int = 20) -> list[dict[str, Any]]:
+    with connect() as conn:
+        return [
+            dict(row)
+            for row in conn.execute(
+                "SELECT * FROM calendly_bookings ORDER BY created_at DESC LIMIT ?",
+                (max(1, limit),),
+            )
+        ]
+
+
+def count_unread_calendly_bookings() -> int:
+    with connect() as conn:
+        row = conn.execute("SELECT COUNT(*) AS n FROM calendly_bookings WHERE is_read = 0").fetchone()
+        return int(row["n"]) if row else 0
+
+
+def mark_calendly_bookings_read() -> None:
+    with connect() as conn:
+        conn.execute("UPDATE calendly_bookings SET is_read = 1 WHERE is_read = 0")
 
 
 def list_gmail_accounts() -> list[dict[str, Any]]:
