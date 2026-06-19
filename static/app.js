@@ -29,6 +29,7 @@ const state = {
   templates: [],
   selectedTemplateId: null,
   rotationTemplateIds: new Set(),
+  openQueueJobId: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -921,7 +922,9 @@ function renderRecipientPreview() {
 }
 
 function renderPreviewTable() {
-  const rows = sortedPreviewRows();
+  // The launch page lists only recipients that passed every filter (gender, age range, suppression,
+  // company, contacted, duplicates); excluded contacts are summarized in the insight cards instead.
+  const rows = sortedPreviewRows().filter((row) => row.sendable);
   $("previewStatus").textContent = `${state.preview?.summary?.sendable || 0} sendable contacts`;
   const pageSize = state.contactsPageSize;
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
@@ -937,8 +940,8 @@ function renderPreviewTable() {
     <td class="body-cell" title="${escapeHtml(row.body)}">${escapeHtml(previewText(row.body))}</td>
   </tr>`).join("");
   $("contactsPageInfo").textContent = rows.length
-    ? `Showing ${start + 1}-${Math.min(start + pageSize, rows.length)} of ${rows.length} contacts`
-    : "No contacts";
+    ? `Showing ${start + 1}-${Math.min(start + pageSize, rows.length)} of ${rows.length} recipients`
+    : "No recipients match the current filters";
   $("contactsPageLabel").textContent = `${state.contactsPage} / ${pageCount}`;
   $("contactsPrevPage").disabled = state.contactsPage <= 1;
   $("contactsNextPage").disabled = state.contactsPage >= pageCount;
@@ -1204,11 +1207,54 @@ async function loadStatusSummary() {
 }
 
 async function loadQueueDetails(jobId) {
+  state.openQueueJobId = jobId;
   const { items } = await api(`/api/jobs/${jobId}/queue`);
-  $("queueDetails").innerHTML = `<div class="queue-details"><table class="mini-table">
-    <thead><tr><th>Row</th><th>Email</th><th>Template</th><th>Status</th><th>Detail</th></tr></thead>
-    <tbody>${items.map((item) => `<tr><td>${item.row_index}</td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.template_name || "Inline")}</td><td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.verification_detail || item.error || "")}</td></tr>`).join("")}</tbody>
-  </table></div>`;
+  // The panel can be closed between the request starting and finishing; don't repaint if so.
+  if (state.openQueueJobId !== jobId) return;
+  const job = state.jobs.find((entry) => entry.id === jobId);
+  const name = job?.campaign_name || jobId;
+  const status = job?.status || "";
+  const sent = items.filter((item) => item.status === "sent").length;
+  const live = status === "running" || items.some((item) => item.status === "sending");
+  $("queueDetails").innerHTML = `<div class="queue-details">
+    <div class="queue-details-head">
+      <div class="queue-details-title">
+        <strong>${escapeHtml(name)}</strong>
+        <span class="status ${escapeHtml(status)}">${escapeHtml(status || "—")}</span>
+        <span class="queue-progress">${sent}/${items.length} sent</span>
+      </div>
+      <div class="queue-live">
+        ${live ? '<span class="live-pill"><span class="live-dot"></span>Live</span>' : ""}
+        <span class="queue-updated">Updated ${new Date().toLocaleTimeString()}</span>
+        <button type="button" class="link-button" data-action="close-queue">Close</button>
+      </div>
+    </div>
+    <table class="mini-table">
+      <thead><tr><th>Row</th><th>Email</th><th>Template</th><th>Status</th><th>Detail</th></tr></thead>
+      <tbody>${items.map((item) => `<tr><td>${item.row_index}</td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.template_name || "Inline")}</td><td><span class="status ${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></td><td>${escapeHtml(item.verification_detail || item.error || "")}</td></tr>`).join("")}</tbody>
+    </table>
+  </div>`;
+}
+
+function closeQueueDetails() {
+  state.openQueueJobId = null;
+  $("queueDetails").innerHTML = "";
+}
+
+// Frontend-only live refresh: while a campaign is running (or its queue panel is open and the
+// Campaigns page is visible), poll the queue/jobs/status so the UI updates without a manual reload.
+async function liveTick() {
+  if (document.hidden) return;
+  const onCampaigns = (window.location.hash || "#dashboard").slice(1) === "campaigns";
+  const hasActive = state.jobs.some((job) => job.status === "running" || job.counts?.sending);
+  if (!hasActive && !state.openQueueJobId) return;
+  try {
+    await loadStatusSummary();
+    await loadJobs();
+    if (state.openQueueJobId && onCampaigns) await loadQueueDetails(state.openQueueJobId);
+  } catch {
+    // Transient errors (e.g. a brief network blip) shouldn't surface a toast on every tick.
+  }
 }
 
 async function loadSuppressions() {
@@ -1459,8 +1505,30 @@ $("manualPreviewBtn").addEventListener("click", async () => {
   $(id).addEventListener("input", () => { renderLiveEmail(); renderSchedulePreview(); renderMetrics(); });
 });
 
+// Editing the Rules-step / Settings "Audience Range" must drive the same age model the payload
+// reads (recipientAgeFilter + recipientAgeMin/Max); otherwise those typed values get overridden.
+function syncRecipientFilterFromAgeInputs(sourceId) {
+  const isStep = sourceId === "ageMinStep" || sourceId === "ageMaxStep";
+  const minVal = (isStep ? $("ageMinStep") : $("ageMin")).value.trim();
+  const maxVal = (isStep ? $("ageMaxStep") : $("ageMax")).value.trim();
+  ["ageMin", "ageMinStep"].forEach((id) => { $(id).value = minVal; });
+  ["ageMax", "ageMaxStep"].forEach((id) => { $(id).value = maxVal; });
+  $("recipientAgeMin").value = minVal;
+  $("recipientAgeMax").value = maxVal;
+  const filter = $("recipientAgeFilter");
+  if (!minVal && !maxVal) {
+    filter.value = "all";
+    return;
+  }
+  const preset = `${minVal}-${maxVal}`;
+  filter.value = [...filter.options].some((option) => option.value === preset) ? preset : "custom";
+}
+
 ["ageMin", "ageMax", "ageMinStep", "ageMaxStep"].forEach((id) => {
-  $(id).addEventListener("change", () => refreshPreview().catch((error) => showToast(error, "error", "Preview failed")));
+  $(id).addEventListener("change", () => {
+    syncRecipientFilterFromAgeInputs(id);
+    refreshPreview().catch((error) => showToast(error, "error", "Preview failed"));
+  });
 });
 
 function syncAgeInputsFromRecipientFilter() {
@@ -1980,8 +2048,13 @@ loadSuppressions();
 loadTemplates();
 renderAttachments();
 renderVariableChips();
+$("queueDetails").addEventListener("click", (event) => {
+  if (event.target.closest("[data-action='close-queue']")) closeQueueDetails();
+});
 setInterval(async () => {
   await loadJobs();
   await loadStatusSummary();
   await loadCalendlyBookings().catch(() => {});
 }, 15000);
+// Faster cadence for near-real-time campaign progress (guarded to only run when relevant).
+setInterval(() => { liveTick(); }, 4000);
