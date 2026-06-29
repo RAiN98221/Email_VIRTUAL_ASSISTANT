@@ -1,0 +1,19 @@
+#!/bin/sh
+# Block commits when the index is stale but the working tree already matches HEAD.
+# That mismatch caused accidental reverts when .git/index could not be updated.
+set -e
+
+if git diff --quiet HEAD 2>/dev/null && ! git diff --cached --quiet HEAD 2>/dev/null; then
+  echo "pre-commit: Git index is out of sync with HEAD." >&2
+  echo "pre-commit: Working tree is clean, but staged changes would rewrite history." >&2
+  echo "pre-commit: Run: powershell -ExecutionPolicy Bypass -File scripts/repair-git.ps1" >&2
+  exit 1
+fi
+
+if [ -f .git/index.lock ]; then
+  echo "pre-commit: Stale .git/index.lock found." >&2
+  echo "pre-commit: Run: powershell -ExecutionPolicy Bypass -File scripts/repair-git.ps1" >&2
+  exit 1
+fi
+
+exit 0

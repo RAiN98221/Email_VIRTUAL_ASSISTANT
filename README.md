@@ -56,6 +56,25 @@ Invoke-RestMethod http://localhost:8000/api/send-test `
   -Body '{"to_email":"your-test-address@gmail.com"}'
 ```
 
+## Git on Windows / Cursor
+
+Run once after cloning (or if `git status` looks wrong):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/setup-git.ps1
+```
+
+This installs repo hooks, stores the Git index under `%LOCALAPPDATA%/email_virtual_assistant/git-indexes/` (avoids sandbox locks on `.git/index`), and configures your local VS Code terminal env. For ad-hoc commands in Cursor, use:
+
+```powershell
+.\scripts\git.ps1 status
+.\scripts\git.ps1 add -A
+.\scripts\git.ps1 commit -m "message"
+.\scripts\git.ps1 push origin dev
+```
+
+If Git still looks stale, run `scripts/repair-git.ps1`.
+
 ## Notes
 
 - The original CSV is not modified.
