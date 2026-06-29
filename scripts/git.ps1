@@ -14,4 +14,6 @@ if ($GitArgs.Count -eq 0) {
 }
 
 & git @GitArgs
-exit $LASTEXITCODE
+$exitCode = $LASTEXITCODE
+Sync-GitIndexToRepo
+exit $exitCode

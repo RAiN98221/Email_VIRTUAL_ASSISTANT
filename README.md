@@ -73,7 +73,7 @@ This installs repo hooks, stores the Git index under `%LOCALAPPDATA%/email_virtu
 .\scripts\git.ps1 push origin dev
 ```
 
-If Git still looks stale, run `scripts/repair-git.ps1`.
+If Git still looks stale, run `scripts/repair-git.ps1` or `scripts/sync-git-index.ps1` (refreshes what Cursor's source control panel reads).
 
 ## Notes
 

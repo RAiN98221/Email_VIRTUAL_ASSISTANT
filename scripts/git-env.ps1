@@ -29,3 +29,20 @@ $env:GIT_INDEX_FILE = $indexPath
 if (-not (Test-Path -LiteralPath $indexPath)) {
     git read-tree HEAD | Out-Null
 }
+
+function Sync-GitIndexToRepo {
+    if (-not $env:GIT_INDEX_FILE) {
+        return
+    }
+    $root = git rev-parse --show-toplevel 2>$null
+    if (-not $root) {
+        return
+    }
+    $target = Join-Path $root ".git/index"
+    try {
+        Copy-Item -LiteralPath $env:GIT_INDEX_FILE -Destination $target -Force
+    }
+    catch {
+        Write-Warning "Could not sync .git/index for the IDE: $($_.Exception.Message)"
+    }
+}
