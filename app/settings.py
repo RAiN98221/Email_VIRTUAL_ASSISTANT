@@ -22,24 +22,24 @@ def _load_dotenv(path: Path) -> None:
 _load_dotenv(ROOT_DIR / ".env")
 
 
+def _default_smtp_security() -> str:
+    explicit = os.getenv("SMTP_SECURITY", "").strip().lower()
+    if explicit in {"starttls", "ssl"}:
+        return explicit
+    return "ssl" if os.getenv("SMTP_PORT", "587").strip() == "465" else "starttls"
+
+
 @dataclass(frozen=True)
 class Settings:
-    smtp_host: str = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    mail_provider: str = os.getenv("MAIL_PROVIDER", "brevo").strip().lower() or "brevo"
+    smtp_host: str = os.getenv("SMTP_HOST", "smtp-relay.brevo.com")
     smtp_connect_host: str = os.getenv("SMTP_CONNECT_HOST", "")
     smtp_port: int = int(os.getenv("SMTP_PORT", "587"))
+    smtp_security: str = _default_smtp_security()
     smtp_username: str = os.getenv("SMTP_USERNAME", "")
     smtp_password: str = os.getenv("SMTP_PASSWORD", "")
     from_email: str = os.getenv("FROM_EMAIL", os.getenv("SMTP_USERNAME", ""))
-    imap_host: str = os.getenv("IMAP_HOST", "imap.gmail.com")
-    imap_port: int = int(os.getenv("IMAP_PORT", "993"))
-    imap_username: str = os.getenv("IMAP_USERNAME", os.getenv("SMTP_USERNAME", ""))
-    imap_password: str = os.getenv("IMAP_PASSWORD", os.getenv("SMTP_PASSWORD", ""))
-    verify_sent_mail: bool = os.getenv("VERIFY_SENT_MAIL", "true").lower() in {"1", "true", "yes", "on"}
-    verify_sent_timeout_seconds: int = int(os.getenv("VERIFY_SENT_TIMEOUT_SECONDS", "20"))
-    verify_sent_poll_seconds: int = int(os.getenv("VERIFY_SENT_POLL_SECONDS", "2"))
-    reply_poll_enabled: bool = os.getenv("REPLY_POLL_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
-    reply_poll_seconds: int = int(os.getenv("REPLY_POLL_SECONDS", "60"))
-    reply_poll_limit: int = int(os.getenv("REPLY_POLL_LIMIT", "15"))
+    from_name: str = os.getenv("FROM_NAME", "")
     database_path: Path = ROOT_DIR / os.getenv("APP_DATABASE_PATH", "email_assistant.sqlite3")
     default_csv_path: Path = ROOT_DIR / os.getenv(
         "DEFAULT_CSV_PATH", "filtered_contacts_under35_male_FIXED.csv"

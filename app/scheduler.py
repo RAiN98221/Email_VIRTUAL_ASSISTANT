@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import db
 from .logging_config import get_logger
-from .settings import ROOT_DIR, settings
+from .settings import ROOT_DIR
 
 
 logger = get_logger(__name__)
@@ -102,51 +102,15 @@ async def run_scheduler(stop_event: asyncio.Event, poll_seconds: int = 10) -> No
     from .graph import mail_client
 
     graph = mail_client()
-    last_reply_poll: datetime | None = datetime.now(timezone.utc)
     while not stop_event.is_set():
         try:
             process_due_items(graph)
-            now = datetime.now(timezone.utc)
-            if (
-                settings.reply_poll_enabled
-                and (last_reply_poll is None or (now - last_reply_poll).total_seconds() >= settings.reply_poll_seconds)
-            ):
-                sync_inbound_replies(graph)
-                last_reply_poll = now
         except Exception:
             logger.exception("scheduler_loop_error")
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=poll_seconds)
         except asyncio.TimeoutError:
             continue
-
-
-def sync_inbound_replies(graph) -> int:
-    try:
-        replies = graph.fetch_inbound_replies(limit=settings.reply_poll_limit)
-    except Exception as exc:
-        logger.warning("reply_poll_failed detail=%s", exc)
-        return 0
-    saved = 0
-    from .contacts import normalize_email
-
-    for reply in replies:
-        from_email_norm = normalize_email(reply.from_email)
-        if not db.queue_item_for_reply(reply.references, from_email_norm):
-            continue
-        if db.record_inbound_reply(
-            message_id=reply.message_id,
-            from_email=reply.from_email,
-            from_email_norm=from_email_norm,
-            subject=reply.subject,
-            body=reply.body,
-            received_at=reply.received_at,
-            references=reply.references,
-        ):
-            saved += 1
-    if saved:
-        logger.info("reply_poll_synced count=%s", saved)
-    return saved
 
 
 def process_due_items(graph) -> None:
@@ -231,15 +195,12 @@ def process_due_items(graph) -> None:
         db.mark_sent(
             item["id"],
             smtp_message_id=send_result.message_id,
-            verification_status=send_result.verification.status,
-            verification_detail=send_result.verification.detail,
         )
         logger.info(
-            "queue_send_ok job_id=%s item_id=%s to=%s verification=%s",
+            "queue_send_ok job_id=%s item_id=%s to=%s",
             job["id"],
             item["id"],
             item["email"],
-            send_result.verification.status,
         )
     except Exception as exc:
         db.mark_failed(item["id"], str(exc))

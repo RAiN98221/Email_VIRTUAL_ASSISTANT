@@ -236,7 +236,7 @@ function notificationItems() {
     }
   }
   if (!state.auth?.configured) {
-    items.push({ tone: "warn", title: "Gmail is not configured", detail: "Set SMTP/Gmail credentials before sending.", target: "settings" });
+    items.push({ tone: "warn", title: "Email provider is not configured", detail: "Add a provider (Brevo or custom SMTP) in Settings before sending.", target: "settings" });
   }
   if (failed) {
     items.push({ tone: "bad", title: `${failed} failed email${failed === 1 ? "" : "s"}`, detail: "Review campaign activity for delivery errors.", target: "campaigns" });
@@ -505,16 +505,23 @@ function showWorkflowStep(step) {
   updateCampaignFooter();
 }
 
+const PROVIDER_LABELS = { brevo: "Brevo", smtp: "SMTP" };
+
+function providerLabel(provider) {
+  return PROVIDER_LABELS[(provider || "").toLowerCase()] || "Provider";
+}
+
 async function loadAuth() {
   state.auth = await api("/api/auth/status");
+  const label = providerLabel(state.auth.provider);
   $("loginBtn").innerHTML = state.auth.configured
-    ? `<strong>${escapeHtml(state.auth.account)}</strong><span>Gmail connected</span>`
-    : "<strong>Gmail not configured</strong><span>Set .env credentials</span>";
+    ? `<strong>${escapeHtml(state.auth.account)}</strong><span>${escapeHtml(label)} connected</span>`
+    : "<strong>Provider not configured</strong><span>Set credentials in Settings</span>";
   $("metricHealth").textContent = state.auth.configured ? "Safe" : "Setup";
   $("metricHealthDetail").textContent = state.auth.configured
     ? `${$("dailySendLimit").value || 25}/day configured`
-    : "Gmail credentials needed";
-  document.querySelectorAll(".settings-gmail").forEach((button) => {
+    : "Email provider needed";
+  document.querySelectorAll(".settings-provider").forEach((button) => {
     button.innerHTML = $("loginBtn").innerHTML;
   });
   renderNotifications();
@@ -523,21 +530,26 @@ async function loadAuth() {
 async function loadAccounts() {
   const data = await api("/api/accounts");
   state.accounts = data.accounts;
-  const rows = data.accounts.map((account) => `<div class="account-row ${account.is_active ? "active" : ""}">
-    <div><strong>${escapeHtml(account.email)}</strong><small>${account.is_active ? "Active sending account" : "Saved"}</small></div>
+  const rows = data.accounts.map((account) => {
+    const tag = providerLabel(account.provider);
+    const detail = account.is_active ? `Active - ${tag}` : tag;
+    return `<div class="account-row ${account.is_active ? "active" : ""}">
+    <div><strong>${escapeHtml(account.from_email || account.email)}</strong><small>${escapeHtml(detail)}</small></div>
     <div class="account-actions">
       ${account.is_active ? '<span class="account-badge">Active</span>' : `<button type="button" class="link-button" data-account-action="activate" data-account-id="${account.id}">Use</button>`}
-      <button type="button" class="icon-button" data-account-action="delete" data-account-id="${account.id}" data-account-email="${escapeHtml(account.email)}" title="Remove account"><span data-icon="trash"></span></button>
+      <button type="button" class="icon-button" data-account-action="delete" data-account-id="${account.id}" data-account-email="${escapeHtml(account.from_email || account.email)}" title="Remove account"><span data-icon="trash"></span></button>
     </div>
-  </div>`);
+  </div>`;
+  });
   const activeAdded = data.accounts.some((account) => account.is_active);
   if (data.env_fallback.configured) {
+    const envTag = providerLabel(data.env_fallback.provider);
     rows.push(`<div class="account-row ${activeAdded ? "" : "active"}">
-      <div><strong>${escapeHtml(data.env_fallback.email || "")}</strong><small>${activeAdded ? "From .env file" : "Active - from .env file"}</small></div>
+      <div><strong>${escapeHtml(data.env_fallback.email || "")}</strong><small>${activeAdded ? `${escapeHtml(envTag)} - from .env file` : `Active - ${escapeHtml(envTag)} from .env file`}</small></div>
       <div class="account-actions">${activeAdded ? '<button type="button" class="link-button" data-account-action="use-env">Use</button>' : '<span class="account-badge">Active</span>'}</div>
     </div>`);
   }
-  $("accountList").innerHTML = rows.join("") || '<p class="empty-state">No Gmail accounts configured yet. Add one below.</p>';
+  $("accountList").innerHTML = rows.join("") || '<p class="empty-state">No email accounts configured yet. Add one below.</p>';
   initIcons($("accountList"));
 }
 
@@ -854,9 +866,9 @@ function renderReplyFilters() {
 function renderSelectedReply(replies = filteredReplies()) {
   const contact = replies[state.selectedReplyIndex];
   if (!contact) {
-    $("replySender").textContent = "Gmail reply sync";
-    $("replyMeta").textContent = "No Gmail inbox polling is connected yet.";
-    $("replyMessage").textContent = "Connect Gmail reply polling to load actual inbound replies here. Until then, suppressions remain tracked locally.";
+    $("replySender").textContent = "Replies";
+    $("replyMeta").textContent = "Inbound replies land in your provider mailbox.";
+    $("replyMessage").textContent = "Inbound replies are delivered straight to your sending mailbox. Recorded replies appear here so you can respond from the app; suppressions remain tracked locally.";
     $("replyDraft").value = "";
     $("starReplyBtn").classList.remove("active");
     $("archiveReplyBtn").classList.remove("active");
@@ -1231,7 +1243,7 @@ async function loadQueueDetails(jobId) {
     </div>
     <table class="mini-table">
       <thead><tr><th>Row</th><th>Email</th><th>Template</th><th>Status</th><th>Detail</th></tr></thead>
-      <tbody>${items.map((item) => `<tr><td>${item.row_index}</td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.template_name || "Inline")}</td><td><span class="status ${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></td><td>${escapeHtml(item.verification_detail || item.error || "")}</td></tr>`).join("")}</tbody>
+      <tbody>${items.map((item) => `<tr><td>${item.row_index}</td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.template_name || "Inline")}</td><td><span class="status ${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></td><td>${escapeHtml(item.error || "")}</td></tr>`).join("")}</tbody>
     </table>
   </div>`;
 }
@@ -1269,7 +1281,7 @@ function renderReplyThreads() {
   const visibleReplies = filteredReplies();
   state.selectedReplyIndex = Math.min(state.selectedReplyIndex, Math.max(0, visibleReplies.length - 1));
   renderReplyFilters();
-  const emptyMessage = state.replySearch.trim() ? "No replies match the search." : "No Gmail replies synced yet.";
+  const emptyMessage = state.replySearch.trim() ? "No replies match the search." : "No replies recorded yet.";
   $("replyThreads").innerHTML = visibleReplies.length ? visibleReplies.map((contact, index) => `<button class="reply-thread ${index === state.selectedReplyIndex ? "active" : ""}" type="button" data-reply-index="${index}">
     <span class="avatar small">${escapeHtml((contact.email || "?").slice(0, 1).toUpperCase())}</span>
     <div><strong>${escapeHtml(contact.email)}</strong><small>${replyFlag(contact, "starred") ? "Starred · " : ""}${escapeHtml(contact.subject || "No subject")} · ${escapeHtml(contact.campaign_name || "unmatched")}</small></div>
@@ -1618,39 +1630,6 @@ $("archiveReplyBtn").addEventListener("click", () => {
   state.selectedReplyIndex = 0;
   loadReplies().catch((error) => showToast(error, "error", "Replies refresh failed"));
 });
-$("syncRepliesBtn").addEventListener("click", async () => {
-  const button = $("syncRepliesBtn");
-  const originalHtml = button.innerHTML;
-  button.disabled = true;
-  button.innerHTML = '<span data-icon="inbox"></span> Syncing...';
-  initIcons(button);
-  showToast("Connecting to Gmail and preparing to fetch recent inbound replies.", "info", "Gmail sync starting");
-  let pendingTimer = window.setTimeout(() => {
-    showToast("Gmail reply sync is still running. You can keep using the app while it finishes.", "info", "Gmail sync pending");
-  }, 900);
-  try {
-    const result = await api("/api/replies/sync", {
-      method: "POST",
-      body: JSON.stringify({ csv_file: $("csvFile")?.value || null, limit: 15 }),
-    });
-    window.clearTimeout(pendingTimer);
-    pendingTimer = null;
-    await loadReplies();
-    await loadStatusSummary();
-    showToast(
-      `${result.synced} Gmail replies synced. ${result.skipped || 0} unrelated inbox messages skipped.`,
-      "success",
-      "Gmail sync finished"
-    );
-  } catch (error) {
-    if (pendingTimer) window.clearTimeout(pendingTimer);
-    showToast(error, "error", "Gmail sync failed");
-  } finally {
-    button.disabled = false;
-    button.innerHTML = originalHtml;
-    initIcons(button);
-  }
-});
 $("sendReplyBtn").addEventListener("click", async () => {
   const reply = state.replies[state.selectedReplyIndex];
   if (!reply?.id) return showToast("Select a synced reply first.", "warning");
@@ -1741,21 +1720,90 @@ $("saveWebhookBtn")?.addEventListener("click", async () => {
     button.disabled = false;
   }
 });
+const PROVIDER_PRESETS = {
+  brevo: {
+    smtp_host: "smtp-relay.brevo.com",
+    smtp_port: 587,
+    smtp_security: "starttls",
+    usernameLabel: "SMTP login",
+    usernamePlaceholder: "your-brevo-smtp-login",
+    secretLabel: "SMTP key",
+    secretPlaceholder: "your-brevo-smtp-key",
+    help: "Brevo: authenticate your domain and create a verified sender, then generate an SMTP key (not an API key) at app.brevo.com > SMTP & API. The SMTP login and key are shown there. Accounts are stored locally. When no added account is active, the .env credentials are used.",
+  },
+  smtp: {
+    smtp_host: "",
+    smtp_port: 587,
+    smtp_security: "starttls",
+    usernameLabel: "SMTP login",
+    usernamePlaceholder: "smtp username",
+    secretLabel: "SMTP password",
+    secretPlaceholder: "smtp password",
+    help: "Custom SMTP: enter your provider's host, port, security, login, and password. Accounts are stored locally in this app's database.",
+  },
+};
+
+function applyProviderPreset() {
+  const provider = ($("accountProvider").value || "brevo").toLowerCase();
+  const preset = PROVIDER_PRESETS[provider] || PROVIDER_PRESETS.smtp;
+  $("accountSmtpHost").value = preset.smtp_host;
+  $("accountSmtpHost").placeholder = preset.smtp_host || "smtp.example.com";
+  $("accountSmtpPort").value = preset.smtp_port;
+  $("accountSmtpSecurity").value = preset.smtp_security;
+  const usernameField = $("accountUsernameField");
+  if (usernameField) usernameField.childNodes[0].nodeValue = preset.usernameLabel;
+  $("accountSmtpUsername").placeholder = preset.usernamePlaceholder;
+  const secretField = $("accountSecretField");
+  if (secretField) secretField.childNodes[0].nodeValue = preset.secretLabel;
+  $("accountSmtpPassword").placeholder = preset.secretPlaceholder;
+  const help = $("providerHelp");
+  if (help) help.textContent = preset.help;
+}
+
+if ($("accountProvider")) {
+  $("accountProvider").addEventListener("change", applyProviderPreset);
+  applyProviderPreset();
+}
+
 $("addAccountBtn").addEventListener("click", async () => {
-  const email = $("accountEmail").value.trim();
-  const password = $("accountPassword").value.trim();
-  if (!email || !password) return showToast("Enter the Gmail address and its App Password.", "warning");
+  const provider = ($("accountProvider").value || "brevo").toLowerCase();
+  const fromEmail = $("accountFromEmail").value.trim();
+  const fromName = $("accountFromName").value.trim();
+  const smtpHost = $("accountSmtpHost").value.trim();
+  const smtpPort = parseInt($("accountSmtpPort").value, 10) || 587;
+  const smtpSecurity = $("accountSmtpSecurity").value;
+  const smtpUsername = $("accountSmtpUsername").value.trim();
+  const smtpPassword = $("accountSmtpPassword").value.trim();
+  if (!fromEmail || !smtpPassword) {
+    return showToast("Enter at least the From email and the SMTP key/password.", "warning");
+  }
+  if (!smtpUsername) {
+    return showToast("Enter the SMTP login for this provider.", "warning");
+  }
   const button = $("addAccountBtn");
   button.disabled = true;
-  $("accountStatus").textContent = "Verifying credentials with Gmail...";
+  $("accountStatus").textContent = "Verifying credentials with the mail server...";
   try {
-    await api("/api/accounts", { method: "POST", body: JSON.stringify({ email, app_password: password }) });
-    $("accountEmail").value = "";
-    $("accountPassword").value = "";
+    await api("/api/accounts", {
+      method: "POST",
+      body: JSON.stringify({
+        provider,
+        from_email: fromEmail,
+        from_name: fromName,
+        smtp_host: smtpHost,
+        smtp_port: smtpPort,
+        smtp_security: smtpSecurity,
+        smtp_username: smtpUsername,
+        smtp_password: smtpPassword,
+      }),
+    });
+    $("accountFromEmail").value = "";
+    $("accountSmtpUsername").value = "";
+    $("accountSmtpPassword").value = "";
     $("accountStatus").textContent = "";
     await loadAccounts();
     await loadAuth();
-    showToast(`${email} added and set as the active sending account.`, "success", "Account added");
+    showToast(`${fromEmail} added and set as the active sending account.`, "success", "Account added");
   } catch (error) {
     $("accountStatus").textContent = "";
     showToast(error, "error", "Could not add account");
@@ -1775,13 +1823,13 @@ $("accountList").addEventListener("click", async (event) => {
       showToast("Switched back to the .env account.", "success");
     } else if (button.dataset.accountAction === "delete") {
       const confirmed = await confirmAction({
-        title: "Remove Gmail account?",
+        title: "Remove email account?",
         message: `"${button.dataset.accountEmail}" will be removed from this app. Emails already sent are not affected.`,
         confirmLabel: "Remove Account",
       });
       if (!confirmed) return;
       await api(`/api/accounts/${button.dataset.accountId}`, { method: "DELETE" });
-      showToast("Gmail account removed.", "success");
+      showToast("Email account removed.", "success");
     }
     await loadAccounts();
     await loadAuth();
@@ -1913,11 +1961,8 @@ $("sendTestBtn").addEventListener("click", async () => {
         content_type: htmlEmail ? "HTML" : "Text",
       }),
     });
-    const verified = result.result?.verification?.status === "sent_mail_found";
     showToast(
-      verified
-        ? `Sent to ${toEmail} and verified in Gmail Sent Mail.`
-        : `Sent to ${toEmail}. ${result.result?.verification?.detail || ""}`,
+      `Sent to ${toEmail}. ${result.result?.meaning || "The SMTP server accepted the message."}`,
       "success",
       "Test email sent",
     );

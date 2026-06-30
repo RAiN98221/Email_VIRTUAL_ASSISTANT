@@ -102,11 +102,6 @@ class ReplyResponseRequest(BaseModel):
     body: str = Field(min_length=1)
 
 
-class ReplySyncRequest(BaseModel):
-    csv_file: str | None = None
-    limit: int = Field(default=15, ge=1, le=100)
-
-
 class TemplateRequest(BaseModel):
     id: str | None = None
     name: str = Field(min_length=1)
@@ -114,9 +109,21 @@ class TemplateRequest(BaseModel):
     body: str = Field(min_length=1)
 
 
-class GmailAccountRequest(BaseModel):
-    email: str = Field(min_length=3)
-    app_password: str = Field(min_length=8)
+PROVIDER_DEFAULTS: dict[str, dict[str, object]] = {
+    "brevo": {"smtp_host": "smtp-relay.brevo.com", "smtp_port": 587, "smtp_security": "starttls"},
+    "smtp": {"smtp_host": "", "smtp_port": 587, "smtp_security": "starttls"},
+}
+
+
+class MailAccountRequest(BaseModel):
+    provider: str = ""
+    from_email: str = ""
+    from_name: str = Field(default="", max_length=70)
+    smtp_host: str = ""
+    smtp_port: int | None = None
+    smtp_security: str = ""
+    smtp_username: str = ""
+    smtp_password: str = ""
     activate: bool = True
     verify: bool = True
 
@@ -184,16 +191,27 @@ def send_test(payload: SendTestRequest) -> dict:
         "result": result.as_dict(),
         "delivery_confirmed": False,
         "delivery_note": (
-            "This verifies SMTP acceptance and, when enabled, Gmail Sent Mail visibility. "
+            "This verifies that the SMTP server accepted the message. "
             "It does not prove the recipient inbox accepted or displayed the email."
         ),
     }
 
 
 def public_account(account: dict) -> dict:
+    def value(key: str, default):
+        try:
+            result = account[key]
+        except (KeyError, IndexError):
+            return default
+        return result if result not in (None, "") else default
+
     return {
         "id": account["id"],
         "email": account["email"],
+        "provider": value("provider", "brevo"),
+        "from_email": value("from_email", account["email"]),
+        "from_name": value("from_name", ""),
+        "smtp_host": value("smtp_host", "smtp-relay.brevo.com"),
         "is_active": bool(account["is_active"]),
         "created_at": account["created_at"],
     }
@@ -202,43 +220,85 @@ def public_account(account: dict) -> dict:
 @app.get("/api/accounts")
 def accounts() -> dict:
     return {
-        "accounts": [public_account(account) for account in db.list_gmail_accounts()],
+        "accounts": [public_account(account) for account in db.list_mail_accounts()],
         "env_fallback": {
             "email": settings.from_email or settings.smtp_username or None,
+            "provider": settings.mail_provider,
             "configured": bool(settings.smtp_username.strip() and settings.smtp_password.strip()),
         },
     }
 
 
 @app.post("/api/accounts")
-def add_account(payload: GmailAccountRequest) -> dict:
-    email = payload.email.strip().lower()
-    if not is_valid_email(email):
-        raise HTTPException(status_code=400, detail="Enter a valid Gmail address.")
-    if any(account["email"] == email for account in db.list_gmail_accounts()):
-        raise HTTPException(status_code=409, detail="That Gmail account is already added.")
-    app_password = payload.app_password.replace(" ", "")
+def add_account(payload: MailAccountRequest) -> dict:
+    provider = (payload.provider or "").strip().lower() or "brevo"
+    if provider not in PROVIDER_DEFAULTS:
+        provider = "smtp"
+    defaults = PROVIDER_DEFAULTS[provider]
+
+    from_email = payload.from_email.strip().lower()
+    if not is_valid_email(from_email):
+        raise HTTPException(status_code=400, detail="Enter a valid From email address.")
+
+    secret = payload.smtp_password.replace(" ", "")
+    if not secret:
+        raise HTTPException(status_code=400, detail="Enter the SMTP key or password for this account.")
+
+    smtp_host = (payload.smtp_host or str(defaults["smtp_host"])).strip()
+    if not smtp_host:
+        raise HTTPException(status_code=400, detail="Enter the SMTP host for this account.")
+    smtp_port = int(payload.smtp_port if payload.smtp_port is not None else defaults["smtp_port"])
+    smtp_security = (payload.smtp_security or str(defaults["smtp_security"])).strip().lower()
+    if smtp_security not in {"starttls", "ssl"}:
+        smtp_security = "ssl" if smtp_port == 465 else "starttls"
+    smtp_username = payload.smtp_username.strip()
+    if not smtp_username:
+        raise HTTPException(status_code=400, detail="Enter the SMTP login/username for this account.")
+
+    if from_email in {account["email"] for account in db.list_mail_accounts()}:
+        raise HTTPException(status_code=409, detail="That sender address is already added.")
+
     if payload.verify:
         try:
-            mail_client().verify_login(email, app_password)
+            mail_client().verify_login(
+                smtp_username,
+                secret,
+                smtp_host=smtp_host,
+                smtp_port=smtp_port,
+                smtp_security=smtp_security,
+            )
         except Exception as exc:
             raise HTTPException(
                 status_code=400,
-                detail=f"Gmail rejected the credentials: {exc}. Use a Google App Password, not the regular account password.",
+                detail=(
+                    f"The mail server rejected the credentials: {exc}. "
+                    "Use your SMTP key (not an API key or your account password)."
+                ),
             ) from exc
-    account = db.add_gmail_account(email, app_password, activate=payload.activate)
+
+    account = db.add_mail_account(
+        from_email=from_email,
+        secret=secret,
+        provider=provider,
+        smtp_host=smtp_host,
+        smtp_port=smtp_port,
+        smtp_security=smtp_security,
+        smtp_username=smtp_username,
+        from_name=payload.from_name.strip(),
+        activate=payload.activate,
+    )
     return {"account": public_account(account)}
 
 
 @app.post("/api/accounts/deactivate")
 def deactivate_accounts() -> dict:
-    db.deactivate_gmail_accounts()
+    db.deactivate_mail_accounts()
     return {"ok": True}
 
 
 @app.post("/api/accounts/{account_id}/activate")
 def activate_account(account_id: str) -> dict:
-    account = db.set_active_gmail_account(account_id)
+    account = db.set_active_mail_account(account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
     return {"account": public_account(account)}
@@ -246,7 +306,7 @@ def activate_account(account_id: str) -> dict:
 
 @app.delete("/api/accounts/{account_id}")
 def delete_account(account_id: str) -> dict:
-    if not db.delete_gmail_account(account_id):
+    if not db.delete_mail_account(account_id):
         raise HTTPException(status_code=404, detail="Account not found")
     return {"deleted": True, "id": account_id}
 
@@ -809,42 +869,6 @@ def replies(csv_file: str | None = None) -> dict:
             reply for reply in db.list_replies()
             if not allowed or reply["from_email_norm"] in allowed
         ]
-    }
-
-
-@app.post("/api/replies/sync")
-def sync_replies(payload: ReplySyncRequest | None = None) -> dict:
-    try:
-        inbound = mail_client().fetch_inbound_replies(limit=payload.limit if payload else 15)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Gmail reply sync failed: {exc}") from exc
-    allowed = csv_contact_email_norms(payload.csv_file if payload else None)
-    saved = []
-    skipped = 0
-    for reply in inbound:
-        from_email_norm = normalize_email(reply.from_email)
-        matched = db.queue_item_for_reply(reply.references, from_email_norm)
-        if allowed and from_email_norm not in allowed and not matched:
-            skipped += 1
-            continue
-        saved_reply = db.record_inbound_reply(
-            message_id=reply.message_id,
-            from_email=reply.from_email,
-            from_email_norm=from_email_norm,
-            subject=reply.subject,
-            body=reply.body,
-            received_at=reply.received_at,
-            references=reply.references,
-        )
-        if saved_reply:
-            saved.append(saved_reply)
-    return {
-        "synced": len(saved),
-        "skipped": skipped,
-        "replies": [
-            reply for reply in db.list_replies()
-            if not allowed or reply["from_email_norm"] in allowed
-        ],
     }
 
 

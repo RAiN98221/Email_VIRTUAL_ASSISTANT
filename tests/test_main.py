@@ -24,13 +24,12 @@ def make_request(body: bytes, headers: dict | None = None) -> Request:
     return Request(scope, receive)
 
 from app import db
-from app.graph import SendResult, SendVerification
+from app.graph import SendResult
 from app.contacts import Contact
 from app.main import (
-    GmailAccountRequest,
+    MailAccountRequest,
     PreviewRequest,
     QueueRequest,
-    ReplySyncRequest,
     SchedulingSettingsRequest,
     SendTestRequest,
     SuppressionRequest,
@@ -62,7 +61,6 @@ from app.main import (
     safe_upload_name,
     save_template,
     send_test,
-    sync_replies,
     upload_attachments,
     upload_csv_file,
 )
@@ -269,19 +267,19 @@ class MainTests(unittest.TestCase):
             db.init_db(db_path)
             db.configure_database(db_path)
 
-            added = add_account(GmailAccountRequest(email="Outreach@Gmail.com", app_password="abcd efgh ijkl mnop", verify=False))
-            self.assertEqual(added["account"]["email"], "outreach@gmail.com")
+            added = add_account(MailAccountRequest(from_email="Outreach@MyDomain.com", smtp_username="login-1", smtp_password="brevo key one", verify=False))
+            self.assertEqual(added["account"]["email"], "outreach@mydomain.com")
             self.assertTrue(added["account"]["is_active"])
 
             with self.assertRaises(HTTPException) as duplicate:
-                add_account(GmailAccountRequest(email="outreach@gmail.com", app_password="abcdefghijklmnop", verify=False))
+                add_account(MailAccountRequest(from_email="outreach@mydomain.com", smtp_username="login-1", smtp_password="brevokeyone", verify=False))
             self.assertEqual(duplicate.exception.status_code, 409)
 
             with self.assertRaises(HTTPException) as invalid:
-                add_account(GmailAccountRequest(email="not-an-email", app_password="abcdefghijklmnop", verify=False))
+                add_account(MailAccountRequest(from_email="not-an-email", smtp_username="login-1", smtp_password="brevokeyone", verify=False))
             self.assertEqual(invalid.exception.status_code, 400)
 
-            second = add_account(GmailAccountRequest(email="backup@gmail.com", app_password="abcdefghijklmnop", verify=False, activate=False))
+            second = add_account(MailAccountRequest(from_email="backup@mydomain.com", smtp_username="login-2", smtp_password="brevokeytwo", verify=False, activate=False))
             self.assertFalse(second["account"]["is_active"])
 
             activated = activate_account(second["account"]["id"])
@@ -289,7 +287,7 @@ class MainTests(unittest.TestCase):
             listing = accounts()
             active = [account for account in listing["accounts"] if account["is_active"]]
             self.assertEqual(len(active), 1)
-            self.assertEqual(active[0]["email"], "backup@gmail.com")
+            self.assertEqual(active[0]["email"], "backup@mydomain.com")
 
             deactivate_accounts()
             listing = accounts()
@@ -300,7 +298,7 @@ class MainTests(unittest.TestCase):
                 delete_account(second["account"]["id"])
             self.assertEqual(missing.exception.status_code, 404)
 
-    def test_add_account_verifies_credentials_with_gmail(self):
+    def test_add_account_verifies_credentials_with_smtp(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "test.sqlite3"
             db.init_db(db_path)
@@ -309,15 +307,85 @@ class MainTests(unittest.TestCase):
             with patch("app.main.mail_client") as mock_client:
                 mock_client.return_value.verify_login.side_effect = RuntimeError("Username and Password not accepted")
                 with self.assertRaises(HTTPException) as rejected:
-                    add_account(GmailAccountRequest(email="real@gmail.com", app_password="wrong password 1234"))
+                    add_account(
+                        MailAccountRequest(
+                            provider="smtp",
+                            from_email="real@mydomain.com",
+                            smtp_host="smtp.mailhost.com",
+                            smtp_username="real@mydomain.com",
+                            smtp_password="wrong password 1234",
+                        )
+                    )
             self.assertEqual(rejected.exception.status_code, 400)
             self.assertIn("rejected", rejected.exception.detail)
             self.assertEqual(accounts()["accounts"], [])
 
             with patch("app.main.mail_client") as mock_client:
-                added = add_account(GmailAccountRequest(email="real@gmail.com", app_password="abcd efgh ijkl mnop"))
-            mock_client.return_value.verify_login.assert_called_once_with("real@gmail.com", "abcdefghijklmnop")
+                added = add_account(
+                    MailAccountRequest(
+                        provider="smtp",
+                        from_email="real@mydomain.com",
+                        smtp_host="smtp.mailhost.com",
+                        smtp_username="real@mydomain.com",
+                        smtp_password="abcd efgh ijkl mnop",
+                    )
+                )
+            mock_client.return_value.verify_login.assert_called_once_with(
+                "real@mydomain.com",
+                "abcdefghijklmnop",
+                smtp_host="smtp.mailhost.com",
+                smtp_port=587,
+                smtp_security="starttls",
+            )
             self.assertTrue(added["account"]["is_active"])
+            self.assertEqual(added["account"]["provider"], "smtp")
+
+    def test_add_account_accepts_brevo_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+
+            with patch("app.main.mail_client") as mock_client:
+                added = add_account(
+                    MailAccountRequest(
+                        provider="brevo",
+                        from_email="Sender@MyDomain.com",
+                        from_name="Sender Name",
+                        smtp_username="brevo-login@smtp-brevo.com",
+                        smtp_password="brevo-smtp-key",
+                    )
+                )
+            mock_client.return_value.verify_login.assert_called_once_with(
+                "brevo-login@smtp-brevo.com",
+                "brevo-smtp-key",
+                smtp_host="smtp-relay.brevo.com",
+                smtp_port=587,
+                smtp_security="starttls",
+            )
+            account = added["account"]
+            self.assertEqual(account["provider"], "brevo")
+            self.assertEqual(account["from_email"], "sender@mydomain.com")
+            self.assertEqual(account["from_name"], "Sender Name")
+            self.assertEqual(account["smtp_host"], "smtp-relay.brevo.com")
+            self.assertTrue(account["is_active"])
+
+    def test_add_account_brevo_requires_smtp_login(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+
+            with self.assertRaises(HTTPException) as missing_login:
+                add_account(
+                    MailAccountRequest(
+                        provider="brevo",
+                        from_email="sender@mydomain.com",
+                        smtp_password="brevo-smtp-key",
+                        verify=False,
+                    )
+                )
+            self.assertEqual(missing_login.exception.status_code, 400)
 
     def test_queue_request_rejects_invalid_timezone(self):
         from pydantic import ValidationError
@@ -530,48 +598,6 @@ class MainTests(unittest.TestCase):
             self.assertEqual(response["template"]["name"], "AI Outreach")
             self.assertEqual(db.list_templates()[0]["subject"], "Hi {{first_name}}")
 
-    def test_sync_replies_skips_senders_not_in_selected_csv(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            db_path = Path(tmp) / "test.sqlite3"
-            db.init_db(db_path)
-            db.configure_database(db_path)
-            csv_path = Path(tmp) / "contacts.csv"
-            csv_path.write_text(
-                "first_name,last_name,email,phone,city,state,birth_date,age,gender\n"
-                "Known,Person,known@example.com,555,Austin,TX,1990-01-01,30,F\n",
-                encoding="utf-8",
-            )
-            mail = SimpleNamespace(
-                fetch_inbound_replies=lambda limit=15: [
-                    SimpleNamespace(
-                        message_id="<known@example.com>",
-                        from_email="known@example.com",
-                        subject="Known reply",
-                        body="Interested",
-                        received_at="2026-06-01T10:00:00+00:00",
-                        references=[],
-                    ),
-                    SimpleNamespace(
-                        message_id="<noise@example.com>",
-                        from_email="newsletter@example.com",
-                        subject="Newsletter",
-                        body="Noise",
-                        received_at="2026-06-01T10:01:00+00:00",
-                        references=[],
-                    ),
-                ]
-            )
-            with patch("app.main.available_csv_files") as available_csv_files, patch("app.main.mail_client", return_value=mail):
-                available_csv_files.return_value = [
-                    {"name": "contacts.csv", "path": str(csv_path), "default": False}
-                ]
-                result = sync_replies(ReplySyncRequest(csv_file="contacts.csv"))
-
-            self.assertEqual(result["synced"], 1)
-            self.assertEqual(result["skipped"], 1)
-            self.assertEqual(result["replies"][0]["from_email_norm"], "known@example.com")
-            self.assertEqual(len(db.list_replies()), 1)
-
     def test_preview_excludes_suppressed_contacts(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "test.sqlite3"
@@ -762,11 +788,10 @@ class MainTests(unittest.TestCase):
             with self.assertRaises(HTTPException):
                 delete_suppression("missing@example.com")
 
-    def test_send_test_returns_verification_result_without_queueing(self):
+    def test_send_test_returns_result_without_queueing(self):
         result = SendResult(
             smtp_accepted=True,
             message_id="<test@example.com>",
-            verification=SendVerification("sent_mail_found", "found", '"[Gmail]/Sent Mail"'),
         )
         with patch("app.main.mail_client") as mail_client:
             mail_client.return_value.send_mail.return_value = result
@@ -774,7 +799,7 @@ class MainTests(unittest.TestCase):
 
         self.assertTrue(response["ok"])
         self.assertTrue(response["result"]["smtp_accepted"])
-        self.assertEqual(response["result"]["verification"]["status"], "sent_mail_found")
+        self.assertEqual(response["result"]["message_id"], "<test@example.com>")
         self.assertFalse(response["delivery_confirmed"])
 
     def test_send_test_rejects_invalid_email(self):

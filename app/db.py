@@ -35,8 +35,21 @@ def connect(path: Path | None = None) -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def _rename_legacy_accounts_table(conn: sqlite3.Connection) -> None:
+    """Rename the historical gmail_accounts table to mail_accounts when present."""
+    tables = {
+        row["name"]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    if "gmail_accounts" in tables and "mail_accounts" not in tables:
+        conn.execute("ALTER TABLE gmail_accounts RENAME TO mail_accounts")
+
+
 def init_db(path: Path | None = None) -> None:
     with connect(path) as conn:
+        _rename_legacy_accounts_table(conn)
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS contacted (
@@ -136,13 +149,20 @@ def init_db(path: Path | None = None) -> None:
                 updated_at TEXT NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS gmail_accounts (
+            CREATE TABLE IF NOT EXISTS mail_accounts (
                 id TEXT PRIMARY KEY,
                 email TEXT NOT NULL UNIQUE,
                 app_password TEXT NOT NULL,
                 is_active INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                provider TEXT NOT NULL DEFAULT 'brevo',
+                smtp_host TEXT NOT NULL DEFAULT 'smtp-relay.brevo.com',
+                smtp_port INTEGER NOT NULL DEFAULT 587,
+                smtp_security TEXT NOT NULL DEFAULT 'starttls',
+                smtp_username TEXT NOT NULL DEFAULT '',
+                from_email TEXT NOT NULL DEFAULT '',
+                from_name TEXT NOT NULL DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS app_settings (
@@ -210,6 +230,31 @@ def init_db(path: Path | None = None) -> None:
         for column, statement in reply_migrations.items():
             if column not in existing_reply_columns:
                 conn.execute(statement)
+
+        existing_account_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(mail_accounts)").fetchall()
+        }
+        account_migrations = {
+            "provider": "ALTER TABLE mail_accounts ADD COLUMN provider TEXT NOT NULL DEFAULT 'brevo'",
+            "smtp_host": "ALTER TABLE mail_accounts ADD COLUMN smtp_host TEXT NOT NULL DEFAULT 'smtp-relay.brevo.com'",
+            "smtp_port": "ALTER TABLE mail_accounts ADD COLUMN smtp_port INTEGER NOT NULL DEFAULT 587",
+            "smtp_security": "ALTER TABLE mail_accounts ADD COLUMN smtp_security TEXT NOT NULL DEFAULT 'starttls'",
+            "smtp_username": "ALTER TABLE mail_accounts ADD COLUMN smtp_username TEXT NOT NULL DEFAULT ''",
+            "from_email": "ALTER TABLE mail_accounts ADD COLUMN from_email TEXT NOT NULL DEFAULT ''",
+            "from_name": "ALTER TABLE mail_accounts ADD COLUMN from_name TEXT NOT NULL DEFAULT ''",
+        }
+        for column, statement in account_migrations.items():
+            if column not in existing_account_columns:
+                conn.execute(statement)
+        # Backfill the SMTP login/sender for rows added before those columns existed.
+        conn.execute(
+            """
+            UPDATE mail_accounts
+            SET smtp_username = email,
+                from_email = email
+            WHERE smtp_username = '' OR from_email = ''
+            """
+        )
 
 
 def get_app_setting(key: str, default: str = "") -> str:
@@ -285,56 +330,86 @@ def mark_calendly_bookings_read() -> None:
         conn.execute("UPDATE calendly_bookings SET is_read = 1 WHERE is_read = 0")
 
 
-def list_gmail_accounts() -> list[dict[str, Any]]:
+def list_mail_accounts() -> list[dict[str, Any]]:
     with connect() as conn:
         return [
             dict(row)
-            for row in conn.execute("SELECT * FROM gmail_accounts ORDER BY created_at")
+            for row in conn.execute("SELECT * FROM mail_accounts ORDER BY created_at")
         ]
 
 
-def get_active_gmail_account() -> dict[str, Any] | None:
+def get_active_mail_account() -> dict[str, Any] | None:
     with connect() as conn:
-        row = conn.execute("SELECT * FROM gmail_accounts WHERE is_active = 1").fetchone()
+        row = conn.execute("SELECT * FROM mail_accounts WHERE is_active = 1").fetchone()
         return dict(row) if row else None
 
 
-def add_gmail_account(email: str, app_password: str, activate: bool = False) -> dict[str, Any]:
+def add_mail_account(
+    *,
+    from_email: str,
+    secret: str,
+    provider: str = "brevo",
+    smtp_host: str = "smtp-relay.brevo.com",
+    smtp_port: int = 587,
+    smtp_security: str = "starttls",
+    smtp_username: str = "",
+    from_name: str = "",
+    activate: bool = False,
+) -> dict[str, Any]:
     now = utc_now()
     account_id = str(uuid.uuid4())
+    label = from_email.strip().lower()
+    username = (smtp_username.strip() or label)
     with connect() as conn:
         if activate:
-            conn.execute("UPDATE gmail_accounts SET is_active = 0, updated_at = ? WHERE is_active = 1", (now,))
+            conn.execute("UPDATE mail_accounts SET is_active = 0, updated_at = ? WHERE is_active = 1", (now,))
         conn.execute(
             """
-            INSERT INTO gmail_accounts (id, email, app_password, is_active, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO mail_accounts (
+                id, email, app_password, is_active, created_at, updated_at,
+                provider, smtp_host, smtp_port, smtp_security, smtp_username, from_email, from_name
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (account_id, email.strip().lower(), app_password, 1 if activate else 0, now, now),
+            (
+                account_id,
+                label,
+                secret,
+                1 if activate else 0,
+                now,
+                now,
+                provider.strip().lower() or "brevo",
+                smtp_host.strip(),
+                int(smtp_port),
+                smtp_security.strip().lower() or "starttls",
+                username,
+                label,
+                from_name.strip(),
+            ),
         )
-        row = conn.execute("SELECT * FROM gmail_accounts WHERE id = ?", (account_id,)).fetchone()
+        row = conn.execute("SELECT * FROM mail_accounts WHERE id = ?", (account_id,)).fetchone()
         return dict(row)
 
 
-def set_active_gmail_account(account_id: str) -> dict[str, Any] | None:
+def set_active_mail_account(account_id: str) -> dict[str, Any] | None:
     now = utc_now()
     with connect() as conn:
-        row = conn.execute("SELECT * FROM gmail_accounts WHERE id = ?", (account_id,)).fetchone()
+        row = conn.execute("SELECT * FROM mail_accounts WHERE id = ?", (account_id,)).fetchone()
         if not row:
             return None
-        conn.execute("UPDATE gmail_accounts SET is_active = 0, updated_at = ? WHERE is_active = 1", (now,))
-        conn.execute("UPDATE gmail_accounts SET is_active = 1, updated_at = ? WHERE id = ?", (now, account_id))
-        return dict(conn.execute("SELECT * FROM gmail_accounts WHERE id = ?", (account_id,)).fetchone())
+        conn.execute("UPDATE mail_accounts SET is_active = 0, updated_at = ? WHERE is_active = 1", (now,))
+        conn.execute("UPDATE mail_accounts SET is_active = 1, updated_at = ? WHERE id = ?", (now, account_id))
+        return dict(conn.execute("SELECT * FROM mail_accounts WHERE id = ?", (account_id,)).fetchone())
 
 
-def deactivate_gmail_accounts() -> None:
+def deactivate_mail_accounts() -> None:
     with connect() as conn:
-        conn.execute("UPDATE gmail_accounts SET is_active = 0, updated_at = ? WHERE is_active = 1", (utc_now(),))
+        conn.execute("UPDATE mail_accounts SET is_active = 0, updated_at = ? WHERE is_active = 1", (utc_now(),))
 
 
-def delete_gmail_account(account_id: str) -> bool:
+def delete_mail_account(account_id: str) -> bool:
     with connect() as conn:
-        cursor = conn.execute("DELETE FROM gmail_accounts WHERE id = ?", (account_id,))
+        cursor = conn.execute("DELETE FROM mail_accounts WHERE id = ?", (account_id,))
         return cursor.rowcount > 0
 
 

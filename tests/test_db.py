@@ -20,32 +20,107 @@ class DbTests(unittest.TestCase):
             db.set_app_setting("scheduling_url", "https://cal.com/me")
             self.assertEqual(db.get_app_setting("scheduling_url"), "https://cal.com/me")
 
-    def test_gmail_account_crud_and_active_switching(self):
+    def test_mail_account_crud_and_active_switching(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "test.sqlite3"
             db.init_db(db_path)
             db.configure_database(db_path)
 
-            first = db.add_gmail_account("First@Gmail.com", "app-password-1", activate=True)
-            second = db.add_gmail_account("second@gmail.com", "app-password-2", activate=False)
+            first = db.add_mail_account(
+                from_email="First@MyDomain.com", secret="key-1", smtp_username="login-1", activate=True
+            )
+            second = db.add_mail_account(
+                from_email="second@mydomain.com", secret="key-2", smtp_username="login-2", activate=False
+            )
 
-            self.assertEqual(first["email"], "first@gmail.com")
-            self.assertEqual(db.get_active_gmail_account()["id"], first["id"])
-            self.assertEqual(len(db.list_gmail_accounts()), 2)
+            self.assertEqual(first["email"], "first@mydomain.com")
+            self.assertEqual(db.get_active_mail_account()["id"], first["id"])
+            self.assertEqual(len(db.list_mail_accounts()), 2)
 
-            db.set_active_gmail_account(second["id"])
-            self.assertEqual(db.get_active_gmail_account()["id"], second["id"])
-            active_flags = [account["is_active"] for account in db.list_gmail_accounts()]
+            db.set_active_mail_account(second["id"])
+            self.assertEqual(db.get_active_mail_account()["id"], second["id"])
+            active_flags = [account["is_active"] for account in db.list_mail_accounts()]
             self.assertEqual(sorted(active_flags), [0, 1])
 
-            self.assertIsNone(db.set_active_gmail_account("missing-id"))
+            self.assertIsNone(db.set_active_mail_account("missing-id"))
 
-            db.deactivate_gmail_accounts()
-            self.assertIsNone(db.get_active_gmail_account())
+            db.deactivate_mail_accounts()
+            self.assertIsNone(db.get_active_mail_account())
 
-            self.assertTrue(db.delete_gmail_account(first["id"]))
-            self.assertFalse(db.delete_gmail_account(first["id"]))
-            self.assertEqual(len(db.list_gmail_accounts()), 1)
+            self.assertTrue(db.delete_mail_account(first["id"]))
+            self.assertFalse(db.delete_mail_account(first["id"]))
+            self.assertEqual(len(db.list_mail_accounts()), 1)
+
+    def test_add_mail_account_stores_brevo_provider_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            db.init_db(db_path)
+            db.configure_database(db_path)
+
+            account = db.add_mail_account(
+                from_email="Sender@MyDomain.com",
+                secret="brevo-smtp-key",
+                provider="brevo",
+                smtp_host="smtp-relay.brevo.com",
+                smtp_port=587,
+                smtp_security="starttls",
+                smtp_username="brevo-login@smtp-brevo.com",
+                from_name="Sender Name",
+                activate=True,
+            )
+
+            self.assertEqual(account["provider"], "brevo")
+            self.assertEqual(account["from_email"], "sender@mydomain.com")
+            self.assertEqual(account["email"], "sender@mydomain.com")
+            self.assertEqual(account["smtp_host"], "smtp-relay.brevo.com")
+            self.assertEqual(account["smtp_port"], 587)
+            self.assertEqual(account["smtp_security"], "starttls")
+            self.assertEqual(account["smtp_username"], "brevo-login@smtp-brevo.com")
+            self.assertEqual(account["from_name"], "Sender Name")
+            self.assertEqual(account["app_password"], "brevo-smtp-key")
+
+            active = db.get_active_mail_account()
+            self.assertEqual(active["id"], account["id"])
+
+    def test_legacy_gmail_accounts_table_is_renamed_and_backfilled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.sqlite3"
+            # Simulate a pre-migration database with the historical Gmail-only table.
+            with db.connect(db_path) as conn:
+                conn.execute(
+                    """
+                    CREATE TABLE gmail_accounts (
+                        id TEXT PRIMARY KEY,
+                        email TEXT NOT NULL UNIQUE,
+                        app_password TEXT NOT NULL,
+                        is_active INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    "INSERT INTO gmail_accounts (id, email, app_password, is_active, created_at, updated_at)"
+                    " VALUES ('legacy-id', 'user@gmail.com', 'app-pass', 1, '2024-01-01', '2024-01-01')"
+                )
+
+            db.init_db(db_path)
+            db.configure_database(db_path)
+
+            with db.connect(db_path) as conn:
+                tables = {
+                    row["name"]
+                    for row in conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type = 'table'"
+                    ).fetchall()
+                }
+            self.assertIn("mail_accounts", tables)
+            self.assertNotIn("gmail_accounts", tables)
+
+            account = db.get_active_mail_account()
+            self.assertEqual(account["id"], "legacy-id")
+            self.assertEqual(account["smtp_username"], "user@gmail.com")
+            self.assertEqual(account["from_email"], "user@gmail.com")
 
     def test_mark_sent_records_contacted_history(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -67,13 +142,10 @@ class DbTests(unittest.TestCase):
             db.mark_sent(
                 queue_item["id"],
                 smtp_message_id="request-id",
-                verification_status="sent_mail_found",
-                verification_detail="found in Sent Mail",
             )
             updated_item = db.list_queue(job_id)[0]
             history = db.contacted_history()
             self.assertEqual(updated_item["smtp_message_id"], "request-id")
-            self.assertEqual(updated_item["verification_status"], "sent_mail_found")
             self.assertIsNone(updated_item["error"])
             self.assertEqual(history[0]["email_norm"], "person@example.com")
             self.assertEqual(history[0]["job_id"], job_id)

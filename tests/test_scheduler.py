@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 from app import db
-from app.graph import SendResult, SendVerification
+from app.graph import SendResult
 from app.scheduler import (
     ScheduleConfigError,
     is_within_business_hours,
@@ -101,14 +101,11 @@ class SchedulerTests(unittest.TestCase):
             db.mark_sent(
                 first_item["id"],
                 smtp_message_id="<one@example.com>",
-                verification_status="skipped",
-                verification_detail="test",
             )
             graph = MagicMock()
             graph.send_mail.return_value = SendResult(
                 smtp_accepted=True,
                 message_id="<two@example.com>",
-                verification=SendVerification("skipped", "test"),
             )
 
             process_due_items(graph)

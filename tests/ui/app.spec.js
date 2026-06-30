@@ -291,26 +291,6 @@ test.describe("CSV Email Assistant UI", () => {
     await expect(page.locator("#sideTemplateList")).not.toContainText(templateName);
   });
 
-  test("Gmail sync shows starting, pending, and finished toast states", async ({ page }) => {
-    await page.route("**/api/replies/sync", async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ synced: 2, skipped: 1, replies: [] }),
-      });
-    });
-
-    await openPage(page, "replies");
-    await page.locator("#syncRepliesBtn").click();
-    await expect(page.locator("#syncRepliesBtn")).toBeDisabled();
-    await expect(page.locator(".toast.info", { hasText: "Gmail sync starting" })).toBeVisible();
-    await expect(page.locator(".toast.info", { hasText: "Gmail sync pending" })).toBeVisible();
-    await expect(page.locator(".toast.success", { hasText: "Gmail sync finished" })).toBeVisible();
-    await expect(page.locator(".toast.success", { hasText: "2 Gmail replies synced" })).toBeVisible();
-    await expect(page.locator("#syncRepliesBtn")).toBeEnabled();
-  });
-
   test("settings controls update schedule preview", async ({ page }) => {
     await openPage(page, "settings");
 

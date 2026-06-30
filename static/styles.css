@@ -441,7 +441,7 @@ label {
   font-size: 13px;
 }
 
-.gmail-card {
+.provider-card {
   display: grid;
   justify-content: start;
   gap: 2px;
@@ -452,7 +452,7 @@ label {
   text-align: left;
 }
 
-.gmail-card strong {
+.provider-card strong {
   max-width: 210px;
   overflow: hidden;
   color: var(--ink);
@@ -460,7 +460,7 @@ label {
   white-space: nowrap;
 }
 
-.gmail-card span {
+.provider-card span {
   color: var(--green);
   font-size: 12px;
 }
@@ -1312,7 +1312,7 @@ button.secondary.danger:hover {
   gap: 14px;
 }
 
-.settings-gmail {
+.settings-provider {
   padding: 10px 0;
 }
 
@@ -1390,6 +1390,41 @@ button.secondary.danger:hover {
   display: grid;
   gap: 8px;
   margin-top: 6px;
+}
+
+.provider-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.provider-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.provider-field input,
+.provider-field select {
+  width: 100%;
+}
+
+.provider-field-narrow {
+  max-width: 100%;
+}
+
+.provider-form #addAccountBtn {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+@media (max-width: 640px) {
+  .provider-form {
+    grid-template-columns: 1fr;
+  }
 }
 
 .check-row:has(input:disabled) {
